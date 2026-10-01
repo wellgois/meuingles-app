@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MeuInglês</title>
+<meta name="theme-color" content="#0E6F7A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Sans+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>MeuInglês</div>
+    <div class="top-right">
+      <span class="pill" id="levelPill" hidden></span>
+      <button class="icon-btn" id="logoutBtn" hidden aria-label="Sair">Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- LOGIN -->
+    <section class="screen" id="s-login" hidden>
+      <div class="hello"><h2>Bem-vindo ao MeuInglês</h2><p>Inglês falado para engenharia de dados. Por enquanto o acesso é por código.</p></div>
+      <form class="block" id="loginForm" novalidate>
+        <label class="field"><span class="label">Seu nome</span><input id="nameInput" autocomplete="name" maxlength="60" required></label>
+        <label class="field"><span class="label">Código de acesso</span><input id="codeInput" type="password" autocomplete="current-password" required></label>
+        <p class="error" id="loginError" hidden></p>
+        <button class="btn" type="submit">Entrar</button>
+      </form>
+    </section>
+
+    <!-- HOME -->
+    <section class="screen" id="s-home" hidden>
+      <div class="hello"><h2 id="helloTitle">Hello</h2><p id="helloSub"></p></div>
+      <div class="block">
+        <div class="row"><span class="label">Trilha</span><span class="label" id="trackLabel"></span></div>
+        <div class="levels" id="levelsBar" aria-label="Progresso nos níveis"></div>
+        <div class="stats">
+          <div class="stat"><strong id="stStreak">0</strong><span>dias seguidos</span></div>
+          <div class="stat"><strong id="stAvg">–</strong><span>acerto médio em 7 dias</span></div>
+          <div class="stat"><strong id="stTotal">0</strong><span>tentativas</span></div>
+        </div>
+      </div>
+      <div class="block">
+        <div class="row"><span class="label">Revisão de hoje · caderno de erros</span></div>
+        <ul class="review" id="reviewList"></ul>
+        <p class="muted" id="reviewEmpty" hidden>Nada para revisar hoje. As palavras que você errar voltam aqui em 1, 3, 7, 14 e 30 dias.</p>
+        <button class="btn" data-go="practice">Começar treino</button>
+      </div>
+    </section>
+
+    <!-- PRACTICE -->
+    <section class="screen" id="s-practice" hidden>
+      <div class="chips" role="group" aria-label="Escolher nível" id="levelChips">
+        <button class="chip" data-lv="1" aria-pressed="false">1 · Sounds</button>
+        <button class="chip" data-lv="2" aria-pressed="false">2 · Sentences</button>
+        <button class="chip" data-lv="3" aria-pressed="false">3 · Explain it</button>
+        <button class="chip" data-lv="4" aria-pressed="false">4 · Your projects</button>
+      </div>
+      <div class="block prompt">
+        <div class="row">
+          <span class="label" id="pLabel"></span>
+          <div class="row-tight">
+            <button class="play" id="prevBtn" aria-label="Exercício anterior"><svg viewBox="0 0 10 10"><path d="M7 1L2 5l5 4z"/></svg></button>
+            <span class="counter" id="pCounter"></span>
+            <button class="play" id="nextBtn" aria-label="Próximo exercício"><svg viewBox="0 0 10 10"><path d="M3 1l5 4-5 4z"/></svg></button>
+          </div>
+        </div>
+        <div class="big" id="pText"></div>
+        <div class="ipa" id="pIpa"></div>
+        <div class="hint" id="pHint"></div>
+        <button class="btn ghost small listen" id="listenBtn"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z"/></svg>Ouvir pronúncia</button>
+      </div>
+      <div class="recorder">
+        <canvas id="wave" width="760" height="112" aria-hidden="true"></canvas>
+        <button class="rec" id="recBtn" aria-label="Gravar"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0h-2a5 5 0 0 1-10 0zM11 18h2v3h-2z"/></svg></button>
+        <div class="rec-note" id="recNote">Toque para gravar</div>
+        <div class="live" id="liveText" aria-live="polite"></div>
+      </div>
+      <div id="result" class="screen"></div>
+    </section>
+
+    <!-- INTERVIEW -->
+    <section class="screen" id="s-interview" hidden>
+      <div class="block">
+        <span class="label">Nível 5 · Interview</span>
+        <h3>Simulador de entrevista</h3>
+        <p class="muted">O entrevistador por voz chega na Fase 5. Ele precisa da chave do LLM para fazer as perguntas de acompanhamento e dar nota por critério.</p>
+        <p class="muted">Enquanto isso, treine as respostas no nível 4 · Your projects. Elas são as mesmas perguntas que o entrevistador vai fazer.</p>
+        <button class="btn" id="goStar">Treinar no nível 4</button>
+      </div>
+    </section>
+
+    <!-- PROGRESS -->
+    <section class="screen" id="s-progress" hidden>
+      <div class="block">
+        <div class="row"><span class="label">Acerto médio por dia · níveis 1 e 2 · últimos 21 dias</span></div>
+        <div id="chartBox"></div>
+      </div>
+      <div class="block">
+        <div class="row"><span class="label">Palavras que você mais erra</span><span class="label">vezes</span></div>
+        <div class="errs" id="errs"></div>
+      </div>
+      <div class="block">
+        <div class="row"><span class="label">Por nível</span></div>
+        <div class="scroll"><table class="table">
+          <thead><tr><th>Nível</th><th>Tentativas</th><th>Média</th></tr></thead>
+          <tbody id="levelTable"></tbody>
+        </table></div>
+      </div>
+    </section>
+  </main>
+
+  <nav role="tablist" aria-label="Seções" id="tabs" hidden>
+    <button role="tab" data-tab="home" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>Início</button>
+    <button role="tab" data-tab="practice" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h0"/></svg>Treinar</button>
+    <button role="tab" data-tab="interview" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H9l-5 4z"/></svg>Entrevista</button>
+    <button role="tab" data-tab="progress" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19h16M6 15l4-4 3 3 5-6"/></svg>Evolução</button>
+  </nav>
+  <div class="toast" id="toast" role="status" hidden></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
