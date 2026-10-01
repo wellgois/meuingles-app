@@ -148,3 +148,7 @@ button.w{border:0;cursor:pointer;font:inherit;font-weight:700;font-size:14.5px}
 .fixes .why{font-size:13.5px;color:var(--muted)}
 .natural{display:grid;gap:6px;border-top:1px solid var(--line);padding-top:10px}
 .natural p{margin:0}
+
+/* Fase 1.2: treino por som */
+.sound{gap:10px}
+.sound-p{font-family:var(--f-mono);font-size:26px;font-weight:600;color:var(--accent)}

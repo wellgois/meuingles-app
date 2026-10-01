@@ -129,3 +129,9 @@ def find_item(item_id: str):
         info = WORD_INDEX.get(word.lower(), {})
         return 1, {"id": item_id, "text": word, "kind": "word", "ipa": info.get("ipa", ""), "hint": info.get("tip", "")}
     return None, None
+
+
+def words_with_phoneme(ph: str) -> list[dict]:
+    from .phonemes import tokens
+    return [{"id": "w:" + i, "text": t, "ipa": ipa, "hint": tip, "kind": "word"}
+            for i, t, ipa, tip in WORDS if ph in tokens(ipa)]

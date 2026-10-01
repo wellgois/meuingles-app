@@ -20,6 +20,8 @@
     azure: false,
     llm: false,
     forceBrowser: false,
+    queue: null,
+    qIdx: 0,
   };
 
   /* ---------- utilidades ---------- */
@@ -132,7 +134,7 @@
 
   /* ---------- treino ---------- */
   async function selectLevel(lv, silent) {
-    state.level = lv; state.adhoc = null;
+    state.level = lv; state.adhoc = null; state.queue = null; practiceView(true);
     $$("#levelChips [data-lv]").forEach((c) => c.setAttribute("aria-pressed", String(+c.dataset.lv === lv)));
     if (!state.items[lv]) {
       try {
@@ -160,7 +162,7 @@
     $("#pIpa").hidden = !it.ipa;
     $("#pHint").textContent = it.hint || "";
     const list = state.items[state.level];
-    $("#pCounter").textContent = state.adhoc || !list ? "" : (state.index[state.level] + 1) + "/" + list.length;
+    $("#pCounter").textContent = state.queue ? (state.qIdx + 1) + "/" + state.queue.length : state.adhoc || !list ? "" : (state.index[state.level] + 1) + "/" + list.length;
     const open = it.kind === "explain" || it.kind === "star";
     $("#recNote").textContent = open ? "Toque para começar e toque de novo quando terminar" : "Toque para gravar";
     $("#listenBtn").lastChild.textContent = open ? "Ouvir a pergunta" : "Ouvir pronúncia";
@@ -168,6 +170,12 @@
     $("#result").innerHTML = "";
   }
   function step(d) {
+    if (state.queue) {
+      state.qIdx = (state.qIdx + d + state.queue.length) % state.queue.length;
+      state.adhoc = state.queue[state.qIdx];
+      renderItem();
+      return;
+    }
     const list = state.items[state.level];
     if (!list) return;
     if (!state.adhoc) state.index[state.level] = (state.index[state.level] + d + list.length) % list.length;
@@ -177,10 +185,48 @@
   $("#prevBtn").addEventListener("click", () => step(-1));
   $("#nextBtn").addEventListener("click", () => step(1));
   function practiceAdhoc(item) {
-    state.adhoc = item;
+    state.adhoc = item; state.queue = null; practiceView(true);
     $$("#levelChips [data-lv]").forEach((c) => c.setAttribute("aria-pressed", "false"));
     show("practice");
   }
+
+  /* ---------- treino por som ---------- */
+  function practiceView(on) {
+    $(".prompt").hidden = !on; $(".recorder").hidden = !on; $("#result").hidden = !on;
+    $("#soundsPanel").hidden = on;
+    $("#soundChip").setAttribute("aria-pressed", String(!on && !$("#soundsPanel").hidden));
+  }
+  async function openSounds() {
+    if (rec.active || (typeof aud !== "undefined" && aud.active)) return;
+    $$("#levelChips [data-lv]").forEach((c) => c.setAttribute("aria-pressed", "false"));
+    practiceView(false);
+    $("#soundChip").setAttribute("aria-pressed", "true");
+    const box = $("#soundsPanel");
+    box.innerHTML = '<p class="empty">Calculando seus sons mais fracos…</p>';
+    let r;
+    try { r = await api("sounds"); } catch (e) { if (e.message !== "401") box.innerHTML = '<div class="notice">' + esc(e.message) + "</div>"; return; }
+    if (!r.sounds.length) {
+      box.innerHTML = '<div class="block"><span class="label">Treino por som</span><p class="muted">' + (r.has_data
+        ? "Todos os seus sons estão com média 80 ou mais. Continue nos níveis para manter o ritmo."
+        : "Ainda não há dados suficientes. Faça treinos nos níveis 1 e 2: cada som precisa aparecer pelo menos 3 vezes nas avaliações do Azure.") + "</p></div>";
+      return;
+    }
+    box.innerHTML = '<p class="muted">Seus sons com a menor média nas avaliações do Azure. Escolha um para treinar.</p>' +
+      r.sounds.map((s, i) => '<div class="block sound"><div class="row"><span class="sound-p">/' + esc(s.p) + '/</span>' +
+        '<span class="label">média ' + s.avg + " · " + s.n + " vezes</span></div>" +
+        '<div class="bar"><i style="width:' + Math.max(4, s.avg) + "%;background:" + color(s.avg) + '"></i></div>' +
+        (s.tip ? '<p class="muted">' + esc(s.tip) + "</p>" : "") +
+        '<button class="btn" data-sound="' + i + '">Treinar /' + esc(s.p) + "/ · " + s.items.length + " exercícios</button></div>").join("");
+    box.querySelectorAll("[data-sound]").forEach((b) => b.addEventListener("click", () => {
+      const snd = r.sounds[+b.dataset.sound];
+      state.queue = snd.items; state.qIdx = 0; state.adhoc = snd.items[0];
+      practiceView(true);
+      $("#soundChip").setAttribute("aria-pressed", "true");
+      renderItem();
+      window.scrollTo(0, 0);
+    }));
+  }
+  $("#soundChip").addEventListener("click", openSounds);
 
   /* ---------- voz nativa (TTS do navegador) ---------- */
   let voice = null;

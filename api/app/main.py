@@ -232,6 +232,33 @@ async def create_attempt_audio(request: Request, item_id: str, duration_ms: int 
     return await run_in_threadpool(save_attempt, user, level, item, transcript, result, "azure", duration_ms, meta)
 
 
+# ---------- treino por som ----------
+
+@app.get("/api/sounds")
+def sounds(user=Depends(current_user)):
+    from .phonemes import DRILLS, tip_for
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT phoneme, n, avg_score FROM phoneme_stats
+               WHERE user_id = %s AND n >= 3 ORDER BY avg_score, n DESC""", (user["id"],)).fetchall()
+    has_data = bool(rows)
+    rows = [r for r in rows if float(r["avg_score"]) < 80]
+    out = []
+    for r in rows:
+        ph = r["phoneme"]
+        items = content.words_with_phoneme(ph)[:6]
+        items += [{"id": "t:" + t, "text": t, "kind": "sentence", "hint": "Frase para treinar o som /" + ph + "/."}
+                  for t in DRILLS.get(ph, [])]
+        if not items:
+            continue
+        for it in items:
+            it["label"] = "Som /" + ph + "/"
+        out.append({"p": ph, "n": r["n"], "avg": round(float(r["avg_score"])), "tip": tip_for(ph), "items": items})
+        if len(out) == 3:
+            break
+    return {"sounds": out, "has_data": has_data}
+
+
 # ---------- painéis ----------
 
 @app.get("/api/home")

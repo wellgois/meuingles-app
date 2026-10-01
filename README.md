@@ -4,7 +4,7 @@ A speaking coach for technical English in data engineering. You talk, the app sc
 
 Live at `wellgois.com/meuingles`.
 
-## Current status: phase 1.1
+## Current status: phase 1.2
 
 | Part | Status |
 | --- | --- |
@@ -14,6 +14,7 @@ Live at `wellgois.com/meuingles`.
 | Levels | 1 Sounds & Words, 2 Sentences, 3 Explain it, 4 Your projects (STAR) |
 | Level up | 5 attempts in a row scoring 80 or more |
 | Review notebook | Missed words come back after 1, 3, 7, 14 and 30 days |
+| Sound practice | SQL view `phoneme_stats` (JSONB unnest of Azure phoneme scores, first gold-layer prototype) drives drills for the 3 weakest sounds |
 | Next | Interview simulator, data pipeline (ADF / Airflow, Databricks, dbt) |
 
 ## Architecture

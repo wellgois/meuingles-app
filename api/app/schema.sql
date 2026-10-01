@@ -50,3 +50,16 @@ CREATE TABLE IF NOT EXISTS review_items (
     updated_at    timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, word)
 );
+
+-- Média de cada fonema por usuário, a partir das avaliações do Azure (protótipo da camada gold).
+CREATE OR REPLACE VIEW phoneme_stats AS
+SELECT a.user_id,
+       ph->>'p'                                   AS phoneme,
+       count(*)                                   AS n,
+       round(avg((ph->>'score')::numeric), 1)     AS avg_score,
+       max(a.created_at)                          AS last_seen
+FROM attempts a
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a.raw->'result'->'words', '[]'::jsonb)) w
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w->'phonemes', '[]'::jsonb)) ph
+WHERE a.engine = 'azure' AND ph->>'score' IS NOT NULL
+GROUP BY a.user_id, ph->>'p';
