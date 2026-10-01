@@ -17,6 +17,9 @@
     adhoc: null,
     homeDirty: true,
     progressDirty: true,
+    azure: false,
+    llm: false,
+    forceBrowser: false,
   };
 
   /* ---------- utilidades ---------- */
@@ -222,7 +225,7 @@
     b.classList.toggle("on", on);
     b.setAttribute("aria-label", on ? "Parar" : "Gravar");
     if (on) {
-      const loop = (now) => { if (!rec.active) { drawWave(0, false); return; } drawWave(now - rec.started, true); if (!reduce) requestAnimationFrame(loop); };
+      const loop = (now) => { if (!rec.active && !aud.active) { drawWave(0, false); return; } drawWave(now - rec.started, true); if (!reduce) requestAnimationFrame(loop); };
       requestAnimationFrame(loop);
     } else drawWave(0, false);
   }
@@ -300,7 +303,105 @@
     }
   }
 
-  $("#recBtn").addEventListener("click", () => (rec.active ? stopRec() : startRec()));
+  /* ---------- gravação em áudio para o Azure (níveis 1 e 2) ---------- */
+  const aud = { active: false, stream: null, ctx: null, src: null, node: null, chunks: [], rate: 48000, started: 0, speech: false, lastLoud: 0 };
+
+  function useAzure(it) { return state.azure && !state.forceBrowser && it && (it.kind === "word" || it.kind === "sentence"); }
+
+  async function startAudio() {
+    const it = currentItem();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !AC) { startRec(); return; }
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    try {
+      aud.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch (e) {
+      $("#result").innerHTML = '<div class="notice">Permita o uso do microfone para este site nas configurações do navegador.</div>';
+      return;
+    }
+    aud.ctx = new AC(); aud.rate = aud.ctx.sampleRate;
+    aud.src = aud.ctx.createMediaStreamSource(aud.stream);
+    aud.node = aud.ctx.createScriptProcessor(4096, 1, 1);
+    aud.chunks = []; aud.speech = false; aud.started = performance.now(); aud.lastLoud = aud.started;
+    aud.node.onaudioprocess = (e) => {
+      if (!aud.active) return;
+      const d = e.inputBuffer.getChannelData(0);
+      aud.chunks.push(new Float32Array(d));
+      let sum = 0; for (let i = 0; i < d.length; i += 4) sum += d[i] * d[i];
+      const rms = Math.sqrt(sum / (d.length / 4)), now = performance.now();
+      if (rms > 0.02) { aud.speech = true; aud.lastLoud = now; }
+      if ((aud.speech && now - aud.lastLoud > 1400) || now - aud.started > 25000) stopAudio();
+    };
+    aud.src.connect(aud.node); aud.node.connect(aud.ctx.destination);
+    aud.active = true; rec.started = aud.started;
+    setRecUI(true);
+    $("#recNote").textContent = "Gravando… fale agora (para sozinho quando você terminar)";
+    $("#liveText").textContent = "";
+    $("#result").innerHTML = "";
+  }
+
+  function stopAudio() { if (aud.active) { aud.active = false; finishAudio(); } }
+
+  function encodeWav(chunks, rate) {
+    let len = 0; chunks.forEach((c) => (len += c.length));
+    const all = new Float32Array(len); let o = 0; chunks.forEach((c) => { all.set(c, o); o += c.length; });
+    const ratio = rate / 16000, outLen = Math.floor(all.length / ratio), pcm = new Int16Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const a = Math.floor(i * ratio), b = Math.min(all.length, Math.floor((i + 1) * ratio));
+      let sum = 0; for (let j = a; j < b; j++) sum += all[j];
+      const v = Math.max(-1, Math.min(1, sum / Math.max(1, b - a)));
+      pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    }
+    const buf = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(buf);
+    const str = (off, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(off + i, t.charCodeAt(i)); };
+    str(0, "RIFF"); dv.setUint32(4, 36 + pcm.length * 2, true); str(8, "WAVE"); str(12, "fmt ");
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, 16000, true);
+    dv.setUint32(28, 32000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, "data");
+    dv.setUint32(40, pcm.length * 2, true);
+    new Int16Array(buf, 44).set(pcm);
+    return buf;
+  }
+
+  async function finishAudio() {
+    setRecUI(false);
+    try { aud.node.disconnect(); aud.src.disconnect(); aud.stream.getTracks().forEach((t) => t.stop()); aud.ctx.close(); } catch (e) {}
+    const it = currentItem();
+    const duration = Math.round(performance.now() - aud.started);
+    $("#recNote").textContent = "Toque para gravar";
+    if (!aud.speech) { $("#result").innerHTML = '<div class="notice">Não ouvi nada. Fale um pouco mais alto e perto do microfone.</div>'; return; }
+    const wav = encodeWav(aud.chunks, aud.rate); aud.chunks = [];
+    $("#recNote").textContent = "Avaliando a pronúncia…";
+    $("#recBtn").disabled = true;
+    try {
+      const res = await fetch("api/attempts/audio?item_id=" + encodeURIComponent(it.id) + "&duration_ms=" + duration, {
+        method: "POST", body: wav,
+        headers: { "Content-Type": "audio/wav", "X-User-Id": state.auth.uid, "X-Access-Code": state.auth.code },
+      });
+      let r = null; try { r = await res.json(); } catch (e) {}
+      if (res.status === 401) { logout("Sua sessão expirou. Entre novamente."); return; }
+      if (!res.ok) {
+        $("#result").innerHTML = '<div class="notice">' + esc((r && r.detail) || "Erro " + res.status) +
+          '<br><button class="btn ghost small" id="useBrowser" style="margin-top:8px">Usar o reconhecimento do navegador</button></div>';
+        $("#useBrowser").addEventListener("click", () => { state.forceBrowser = true; $("#result").innerHTML = ""; toast("Modo navegador ativado até você recarregar a página."); });
+        return;
+      }
+      state.homeDirty = state.progressDirty = true;
+      $("#liveText").textContent = r.transcript || "";
+      renderResult(r, it);
+      if (r.level_up) { setPill(r.level_up); toast("Você subiu para o nível " + r.level_up + " · " + r.level_up_name); }
+    } catch (e) {
+      $("#result").innerHTML = '<div class="notice">Sem conexão com o servidor. Tente de novo.</div>';
+    } finally {
+      $("#recBtn").disabled = false;
+      $("#recNote").textContent = "Toque para gravar";
+    }
+  }
+
+  $("#recBtn").addEventListener("click", () => {
+    if (rec.active) return stopRec();
+    if (aud.active) return stopAudio();
+    return useAzure(currentItem()) ? startAudio() : startRec();
+  });
 
   /* ---------- resultado ---------- */
   function color(v) { return v >= 80 ? "var(--good)" : v >= 60 ? "var(--warn)" : "var(--bad)"; }
@@ -312,11 +413,36 @@
       (suffix === "num" ? "" : '<circle cx="29" cy="29" r="24" fill="none" stroke="' + color(v) + '" stroke-width="5" stroke-linecap="round" stroke-dasharray="' + d + " " + C + '" transform="rotate(-90 29 29)"/>') +
       '<text x="29" y="34" text-anchor="middle" font-family="Bricolage Grotesque, sans-serif" font-weight="700" font-size="16" fill="var(--ink)">' + v + "</text></svg><span>" + name + "</span></div>";
   }
+  function azureBlock(r) {
+    const s = r.scores;
+    const worst = r.words.filter((w) => w.status !== "extra").sort((a, b) => (a.score ?? 0) - (b.score ?? 0))[0];
+    return '<div class="block"><div class="row"><span class="label">Resultado · Azure, som por som</span></div>' +
+      '<div class="scores scores4">' + ring(s.pron, "Pronúncia") + ring(s.accuracy, "Precisão") + ring(s.fluency, "Fluência") + ring(s.completeness, "Completude") + "</div>" +
+      '<div class="words">' + r.words.map((w, i) => '<button class="w ' + w.status + '" data-ph="' + i + '" aria-label="Ver os sons de ' + esc(w.display) + '">' + esc(w.display) + "</button>").join("") + "</div>" +
+      '<p class="heard">Toque numa palavra para ver a nota de cada som.</p>' +
+      '<div class="phon" id="phonBox">' + (worst ? phonemeHtml(worst) : "") + "</div>" +
+      '<p class="heard">O Azure entendeu: <b>“' + esc(r.transcript) + '”</b></p></div>';
+  }
+  function phonemeHtml(w) {
+    if (w.status === "missing") return '<p class="heard"><b>' + esc(w.display) + "</b>: palavra não falada.</p>";
+    if (!w.phonemes || !w.phonemes.length) return '<p class="heard"><b>' + esc(w.display) + "</b>: nota " + (w.score ?? "–") + ".</p>";
+    return '<div class="phon-title"><b>' + esc(w.display) + '</b> <span class="ipa">/' + esc(w.phonemes.map((p) => p.p).join("")) + "/</span></div>" +
+      w.phonemes.map((p) => '<div class="phon-row"><span class="ph">/' + esc(p.p) + '/</span><div class="bar"><i style="width:' + Math.max(4, p.score ?? 0) + "%;background:" + color(p.score ?? 0) + '"></i></div><span class="n">' + (p.score ?? "–") + "</span></div>").join("");
+  }
+  function llmBlock(l) {
+    let h = '<div class="block"><div class="row"><span class="label">Correção · Claude</span><span class="label">gramática ' + l.score + "</span></div>";
+    if (l.errors.length) h += '<ul class="fixes">' + l.errors.map((e) => '<li><span class="wrong">' + esc(e.wrong) + '</span> → <span class="right">' + esc(e.right) + "</span>" + (e.why ? '<br><span class="why">' + esc(e.why) + "</span>" : "") + "</li>").join("") + "</ul>";
+    else h += '<p class="heard">Nenhum erro de gramática importante.</p>';
+    if (l.natural) h += '<div class="natural"><span class="label">Versão mais natural</span><p>' + esc(l.natural) + '</p><button class="btn ghost small listen" id="sayNatural"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z"/></svg>Ouvir</button></div>';
+    return h + "</div>";
+  }
   function renderResult(r, it) {
     const s = r.scores;
     let html = "";
     if (r.level_up) html += '<div class="block levelup"><span class="label">Novo nível</span><h3>Nível ' + r.level_up + " · " + esc(r.level_up_name) + "</h3><p class=\"muted\">Cinco tentativas seguidas com 80 ou mais. O nível novo já aparece nos chips acima.</p></div>";
-    if (it.kind === "word" || it.kind === "sentence") {
+    if (r.engine === "azure") {
+      html += azureBlock(r);
+    } else if (it.kind === "word" || it.kind === "sentence") {
       html += '<div class="block"><div class="row"><span class="label">Resultado · reconhecimento do navegador</span></div>' +
         '<div class="scores">' + ring(s.accuracy, "Acerto") + ring(s.completeness, "Completude") + ring(s.confidence, "Confiança") + "</div>" +
         '<div class="words">' + r.words.map((w) => '<span class="w ' + w.status + '" title="' + esc(w.heard || "") + '">' + esc(w.display) + "</span>").join("") + "</div>" +
@@ -331,12 +457,15 @@
         '<div class="words">' + chips + "</div>" +
         '<p class="heard">Transcrição: <b>“' + esc(r.transcript) + '”</b></p></div>';
     }
+    if (r.llm) html += llmBlock(r.llm);
     if (r.tips.length) html += '<div class="block"><div class="row"><span class="label">Onde melhorar</span></div><ul class="tips">' +
       r.tips.map((t) => "<li>" + (t.word ? '<span class="tw">' + esc(t.word) + "</span>" + (t.ipa ? '<span class="tipa">' + esc(t.ipa) + "</span>" : "") + "<br>" : "") + esc(t.text) + "</li>").join("") + "</ul></div>";
     if (r.drills.length) html += '<div class="block"><div class="row"><span class="label">Treine agora</span></div><ul class="drills">' +
       r.drills.map((d, i) => "<li><span>" + esc(d.text) + '</span><span class="acts"><button class="play" data-say="' + i + '" aria-label="Ouvir"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></button><button class="btn ghost small" data-drill="' + i + '">Treinar</button></span></li>').join("") + "</ul></div>";
     const box = $("#result");
     box.innerHTML = html;
+    box.querySelectorAll("[data-ph]").forEach((b) => b.addEventListener("click", () => { $("#phonBox").innerHTML = phonemeHtml(r.words[+b.dataset.ph]); }));
+    if (r.llm && $("#sayNatural")) $("#sayNatural").addEventListener("click", () => say(r.llm.natural));
     box.querySelectorAll("[data-say]").forEach((b) => b.addEventListener("click", () => say(r.drills[+b.dataset.say].text)));
     box.querySelectorAll("[data-drill]").forEach((b) => b.addEventListener("click", () => {
       const d = r.drills[+b.dataset.drill];
@@ -386,7 +515,11 @@
   }
 
   /* ---------- início do app ---------- */
+  async function loadHealth() {
+    try { const h = await (await fetch("api/health")).json(); state.azure = !!h.azure_configured; state.llm = !!h.llm_configured; } catch (e) {}
+  }
   function start() {
+    loadHealth();
     $("#tabs").hidden = false; $("#logoutBtn").hidden = false;
     state.homeDirty = state.progressDirty = true;
     show("home");

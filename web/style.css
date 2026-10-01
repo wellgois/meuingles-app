@@ -130,3 +130,21 @@ canvas{width:100%;height:56px;display:block}
 
 .toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);
   background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:12px;font-size:14px;max-width:calc(100% - 32px);z-index:5}
+
+/* Fase 1.1: Azure (som por som), correção do Claude e barra de rolagem dos níveis */
+.chips{scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.scores4{grid-template-columns:repeat(4,1fr)}
+.scores4 .ring{width:52px;height:52px}
+button.w{border:0;cursor:pointer;font:inherit;font-weight:700;font-size:14.5px}
+.phon{display:grid;gap:6px}
+.phon-title .ipa{font-family:var(--f-mono);color:var(--accent);font-size:13px}
+.phon-row{display:grid;grid-template-columns:52px 1fr 32px;gap:10px;align-items:center;font-size:14px}
+.phon-row .ph{font-family:var(--f-mono);font-weight:600}
+.phon-row .n{font-family:var(--f-mono);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+.fixes{margin:0;padding:0;list-style:none;display:grid;gap:10px}
+.fixes .wrong{color:var(--bad);text-decoration:line-through}
+.fixes .right{color:var(--good);font-weight:700}
+.fixes .why{font-size:13.5px;color:var(--muted)}
+.natural{display:grid;gap:6px;border-top:1px solid var(--line);padding-top:10px}
+.natural p{margin:0}

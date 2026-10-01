@@ -4,16 +4,17 @@ A speaking coach for technical English in data engineering. You talk, the app sc
 
 Live at `wellgois.com/meuingles`.
 
-## Current status: phase 1 (basic mode)
+## Current status: phase 1.1
 
 | Part | Status |
 | --- | --- |
-| Speech capture | Browser speech recognition (Chrome), no API key needed |
+| Speech capture | Levels 1-2: 16 kHz WAV recorded in the browser and scored by Azure Speech pronunciation assessment (phoneme level). Levels 3-4: browser speech recognition |
+| Feedback | Levels 3-4: Claude corrects grammar, rewrites the answer in natural English and generates practice sentences |
 | Scoring | Word alignment between target and transcript (`difflib`), per-word status: ok, close, wrong, missing, extra |
 | Levels | 1 Sounds & Words, 2 Sentences, 3 Explain it, 4 Your projects (STAR) |
 | Level up | 5 attempts in a row scoring 80 or more |
 | Review notebook | Missed words come back after 1, 3, 7, 14 and 30 days |
-| Next | Azure Speech pronunciation assessment (phoneme scores), LLM feedback, interview simulator |
+| Next | Interview simulator, data pipeline (ADF / Airflow, Databricks, dbt) |
 
 ## Architecture
 

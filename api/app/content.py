@@ -122,6 +122,8 @@ def find_item(item_id: str):
         for it in items_for_level(lv):
             if it["id"] == item_id:
                 return lv, it
+    if item_id.startswith("t:") and 3 <= len(item_id) <= 202:
+        return 2, {"id": item_id, "text": item_id[2:], "kind": "sentence", "hint": "Frase sugerida pela IA a partir da sua última resposta."}
     if item_id.startswith("r:"):
         word = item_id[2:]
         info = WORD_INDEX.get(word.lower(), {})

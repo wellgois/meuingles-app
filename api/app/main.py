@@ -6,12 +6,13 @@ import uuid
 from pathlib import Path
 
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from . import content
+from . import azure_speech, content, llm
 from .scoring import SHORT, score_open, score_repeat
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@localhost/meuingles")
@@ -61,8 +62,8 @@ def current_user(x_user_id: str = Header(""), x_access_code: str = Header("")):
 def health():
     with db() as conn:
         conn.execute("SELECT 1")
-    return {"ok": True, "engine": "browser", "azure_configured": bool(os.environ.get("AZURE_SPEECH_KEY")),
-            "llm_configured": bool(os.environ.get("LLM_API_KEY"))}
+    return {"ok": True, "engine": "azure" if azure_speech.configured() else "browser",
+            "azure_configured": azure_speech.configured(), "llm_configured": llm.configured()}
 
 
 class SignIn(BaseModel):
@@ -147,31 +148,18 @@ def update_reviews(conn, user_id, weak, ok):
                 (nxt, today, nxt, user_id, w))
 
 
-@app.post("/api/attempts")
-def create_attempt(body: AttemptIn, user=Depends(current_user)):
-    level, item = content.find_item(body.item_id)
-    if not item:
-        raise HTTPException(404, "Exercício não encontrado.")
-    transcript = body.transcript.strip()
-    if not transcript:
-        raise HTTPException(422, "Nenhuma fala reconhecida. Tente de novo, mais perto do microfone.")
-
-    if item["kind"] in ("word", "sentence"):
-        result = score_repeat(item["text"], transcript, body.confidence)
-    else:
-        result = score_open(item["kind"], transcript, body.duration_ms, item.get("keywords"))
-
+def save_attempt(user, level, item, transcript, result, engine, duration_ms, request_meta):
     s = result["scores"]
     with db() as conn:
         with conn.transaction():
             row = conn.execute(
                 """INSERT INTO attempts (user_id, level, item_id, target_text, transcript, engine, main_score,
-                       accuracy, completeness, confidence, duration_ms, word_count, raw)
-                   VALUES (%s,%s,%s,%s,%s,'browser',%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (user["id"], level, body.item_id, item["text"], transcript, result["main"],
-                 s.get("accuracy"), s.get("completeness"), s.get("confidence"), body.duration_ms,
+                       accuracy, completeness, confidence, fluency, duration_ms, word_count, raw)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (user["id"], level, item["id"], item["text"], transcript, engine, result["main"],
+                 s.get("accuracy"), s.get("completeness"), s.get("confidence"), s.get("fluency"), duration_ms,
                  len(transcript.split()),
-                 json.dumps({"request": body.model_dump(), "result": result}, ensure_ascii=False))).fetchone()
+                 json.dumps({"request": request_meta, "result": result}, ensure_ascii=False))).fetchone()
             for seq, w in enumerate(result["words"]):
                 conn.execute(
                     """INSERT INTO attempt_words (attempt_id, seq, position, expected, heard, status, score)
@@ -187,6 +175,61 @@ def create_attempt(body: AttemptIn, user=Depends(current_user)):
 
     return {"attempt_id": row["id"], "level": level, "transcript": transcript, **result,
             "level_up": level_up, "level_up_name": content.LEVEL_NAMES.get(level_up) if level_up else None}
+
+
+def add_llm(result, item, transcript):
+    fb = llm.feedback(item["kind"], item["text"], transcript, item.get("keywords"))
+    if not fb:
+        return result
+    result["llm"] = fb
+    result["main"] = round((result["main"] + fb["score"]) / 2)
+    result["scores"]["grammar"] = fb["score"]
+    tips = [t for t in result["tips"] if "chave do LLM" not in t["text"]]
+    if fb["tip"]:
+        tips.insert(0, {"word": "", "ipa": "", "text": fb["tip"]})
+    result["tips"] = tips
+    result["drills"] = [{"id": "t:" + d, "text": d} for d in fb["drills"]]
+    return result
+
+
+@app.post("/api/attempts")
+def create_attempt(body: AttemptIn, user=Depends(current_user)):
+    level, item = content.find_item(body.item_id)
+    if not item:
+        raise HTTPException(404, "Exercício não encontrado.")
+    transcript = body.transcript.strip()
+    if not transcript:
+        raise HTTPException(422, "Nenhuma fala reconhecida. Tente de novo, mais perto do microfone.")
+
+    if item["kind"] in ("word", "sentence"):
+        result = score_repeat(item["text"], transcript, body.confidence)
+        result["engine"] = "browser"
+    else:
+        result = score_open(item["kind"], transcript, body.duration_ms, item.get("keywords"))
+        result["engine"] = "browser"
+        result = add_llm(result, item, transcript)
+    return save_attempt(user, level, item, transcript, result, "browser", body.duration_ms, body.model_dump())
+
+
+@app.post("/api/attempts/audio")
+async def create_attempt_audio(request: Request, item_id: str, duration_ms: int | None = None,
+                               user=Depends(current_user)):
+    if not azure_speech.configured():
+        raise HTTPException(503, "A avaliação por fonema ainda não está configurada.")
+    level, item = content.find_item(item_id)
+    if not item or item["kind"] not in ("word", "sentence"):
+        raise HTTPException(404, "Exercício não encontrado.")
+    wav = await request.body()
+    if len(wav) < 1000 or len(wav) > 4_000_000 or wav[:4] != b"RIFF":
+        raise HTTPException(422, "Gravação inválida. Tente de novo.")
+    try:
+        nb = await run_in_threadpool(azure_speech.assess, wav, item["text"])
+    except azure_speech.AzureError as e:
+        raise HTTPException(502, str(e))
+    result = azure_speech.score_azure(item["text"], nb)
+    transcript = result.pop("transcript") or "(sem transcrição)"
+    meta = {"item_id": item_id, "duration_ms": duration_ms, "audio_bytes": len(wav)}
+    return await run_in_threadpool(save_attempt, user, level, item, transcript, result, "azure", duration_ms, meta)
 
 
 # ---------- painéis ----------
