@@ -2,7 +2,7 @@
 
 A speaking coach for technical English in data engineering. You talk, the app scores what you said word by word, keeps a spaced-repetition notebook of the words you miss, and suggests sentences to practice. It is also the source system of a data platform built with the tools of my data engineering postgraduate course.
 
-Live at `wellgois.com/meuingles`.
+Live at `meuingles.wellgois.com`.
 
 ## Current status: phase 2 (open sign-up, 7-day free trial)
 
