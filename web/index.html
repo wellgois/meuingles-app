@@ -23,19 +23,34 @@
   </header>
 
   <main>
-    <!-- LOGIN -->
+    <!-- CONTA: cadastro, login, senha -->
     <section class="screen" id="s-login" hidden>
-      <div class="hello"><h2>Bem-vindo ao MeuInglês</h2><p>Inglês falado para engenharia de dados. Por enquanto o acesso é por código.</p></div>
-      <form class="block" id="loginForm" novalidate>
-        <label class="field"><span class="label">Seu nome</span><input id="nameInput" autocomplete="name" maxlength="60" required></label>
-        <label class="field"><span class="label">Código de acesso</span><input id="codeInput" type="password" autocomplete="current-password" required></label>
-        <p class="error" id="loginError" hidden></p>
-        <button class="btn" type="submit">Entrar</button>
+      <div class="hello"><h2>Inglês falado para entrevistas de dados</h2><p>Grave sua voz, receba nota som por som e correção da IA. 7 dias grátis, sem cartão.</p></div>
+      <ul class="pitch">
+        <li>Pronúncia avaliada som por som pelo Azure</li>
+        <li>Correção de gramática e versão natural das suas respostas</li>
+        <li>Perguntas de entrevista de engenharia de dados no formato STAR</li>
+      </ul>
+      <div class="seg" id="authTabs">
+        <button type="button" id="tabSignup" aria-pressed="true">Criar conta</button>
+        <button type="button" id="tabLogin" aria-pressed="false">Entrar</button>
+      </div>
+      <form class="block" id="authForm" novalidate>
+        <p class="muted" id="authIntro" hidden></p>
+        <label class="field" id="fName"><span class="label">Seu nome</span><input id="nameInput" autocomplete="name" maxlength="60"></label>
+        <label class="field" id="fEmail"><span class="label">E-mail</span><input id="emailInput" type="email" autocomplete="email" maxlength="200"></label>
+        <label class="field" id="fPass"><span class="label" id="passLabel">Senha (mínimo 8 caracteres)</span><input id="passInput" type="password" autocomplete="new-password" maxlength="200"></label>
+        <label class="check" id="fTerms"><input type="checkbox" id="termsInput"><span>Li e aceito os <a href="termos.html" target="_blank" rel="noopener">termos de uso</a> e a <a href="privacidade.html" target="_blank" rel="noopener">política de privacidade</a>.</span></label>
+        <p class="error" id="authError" hidden></p>
+        <p class="ok-msg" id="authOk" hidden></p>
+        <button class="btn" type="submit" id="authSubmit">Criar conta grátis</button>
+        <button type="button" class="linkbtn" id="forgotBtn" hidden>Esqueci minha senha</button>
       </form>
     </section>
 
     <!-- HOME -->
     <section class="screen" id="s-home" hidden>
+      <div id="accountBanner"></div>
       <div class="hello"><h2 id="helloTitle">Hello</h2><p id="helloSub"></p></div>
       <div class="block">
         <div class="row"><span class="label">Trilha</span><span class="label" id="trackLabel"></span></div>
@@ -52,6 +67,18 @@
         <p class="muted" id="reviewEmpty" hidden>Nada para revisar hoje. As palavras que você errar voltam aqui em 1, 3, 7, 14 e 30 dias.</p>
         <button class="btn" data-go="practice">Começar treino</button>
       </div>
+      <div id="adminBox"></div>
+      <div class="account-foot">
+        <span id="accEmail"></span>
+        <span><a href="termos.html" target="_blank" rel="noopener">Termos</a> · <a href="privacidade.html" target="_blank" rel="noopener">Privacidade</a><span id="delWrap"> · <button type="button" class="linkbtn" id="deleteBtn">Excluir conta</button></span></span>
+      </div>
+      <form class="block" id="deleteForm" hidden novalidate>
+        <span class="label">Excluir conta</span>
+        <p class="muted">Apaga sua conta, seus treinos e seu caderno de erros para sempre. Digite sua senha para confirmar.</p>
+        <label class="field"><span class="label">Senha</span><input id="deletePass" type="password" autocomplete="current-password"></label>
+        <p class="error" id="deleteError" hidden></p>
+        <div class="row-tight"><button class="btn danger" type="submit">Excluir para sempre</button><button class="btn ghost" type="button" id="deleteCancel">Cancelar</button></div>
+      </form>
     </section>
 
     <!-- PRACTICE -->

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Termos de uso · MeuInglês</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="doc">
+  <p><a href="./">← Voltar ao MeuInglês</a></p>
+  <h2>Termos de uso</h2>
+  <p class="muted">Versão de 2 de outubro de 2026.</p>
+
+  <h3>1. O que é o MeuInglês</h3>
+  <p>O MeuInglês é uma ferramenta para treinar inglês falado com foco em engenharia de dados. Você grava sua voz, recebe uma avaliação automática de pronúncia e, em alguns exercícios, uma correção feita por inteligência artificial. O serviço é mantido por Wellington Gois, no Rio de Janeiro.</p>
+
+  <h3>2. Conta</h3>
+  <p>Para usar o app você cria uma conta com nome, e-mail e senha. Você é responsável por manter sua senha em segredo e por tudo que for feito com a sua conta. É preciso ter 18 anos ou mais.</p>
+
+  <h3>3. Teste grátis e assinatura</h3>
+  <p>Toda conta nova tem 7 dias de teste grátis, sem cartão de crédito. Depois do teste, o treino fica pausado e seu histórico continua salvo. Quando a assinatura abrir, ela custará R$ 29,90 por mês, poderá ser cancelada a qualquer momento e o preço e as condições serão mostrados antes de qualquer cobrança.</p>
+
+  <h3>4. Limites de uso</h3>
+  <p>Para manter o serviço acessível, existem limites: durante o teste, até 120 minutos de áudio avaliado no total; no plano pago, até 300 minutos por mês; e até 40 correções com IA por dia. Esses limites podem mudar, sempre com aviso no app.</p>
+
+  <h3>5. Avaliações automáticas</h3>
+  <p>As notas e correções são geradas automaticamente pela Microsoft (Azure Speech) e pela Anthropic (Claude) e podem conter erros. Elas servem como apoio ao estudo e não equivalem a certificação de proficiência.</p>
+
+  <h3>6. Uso adequado</h3>
+  <p>Não é permitido tentar burlar os limites, acessar contas de outras pessoas, sobrecarregar o serviço ou usar o app para gravar conteúdo ofensivo ou de terceiros sem autorização.</p>
+
+  <h3>7. Disponibilidade</h3>
+  <p>O serviço é oferecido como está. Podem acontecer interrupções para manutenção ou por falha de fornecedores. Faremos o possível para avisar com antecedência.</p>
+
+  <h3>8. Encerramento</h3>
+  <p>Você pode excluir sua conta a qualquer momento pelo próprio app, em "Excluir conta". Contas que violarem estes termos podem ser suspensas.</p>
+
+  <h3>9. Mudanças e lei aplicável</h3>
+  <p>Estes termos podem ser atualizados; a data no topo indica a versão em vigor. Aplica-se a lei brasileira, com foro na cidade do Rio de Janeiro, ressalvado o direito do consumidor de escolher o foro do seu domicílio.</p>
+
+  <h3>10. Contato</h3>
+  <p>Dúvidas: <span class="contact">pelo e-mail de contato do MeuInglês</span>.</p>
+</main>
+<script>fetch("api/health").then(r => r.json()).then(h => { if (h.contact) document.querySelectorAll(".contact").forEach(e => e.textContent = h.contact); }).catch(() => {});</script>
+</body>
+</html>

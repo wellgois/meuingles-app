@@ -63,3 +63,33 @@ CROSS JOIN LATERAL jsonb_array_elements(COALESCE(a.raw->'result'->'words', '[]':
 CROSS JOIN LATERAL jsonb_array_elements(COALESCE(w->'phonemes', '[]'::jsonb)) ph
 WHERE a.engine = 'azure' AND ph->>'score' IS NOT NULL
 GROUP BY a.user_id, ph->>'p';
+
+-- Fase 2: contas com e-mail e senha, teste grátis e cotas.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pass_hash text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'trial';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS wants_subscription_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reminder_2d_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reminder_end_at timestamptz;
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_key ON users (lower(email)) WHERE email IS NOT NULL;
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS audio_ms int;
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS used_llm boolean NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash  text PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS email_tokens (
+    token_hash  text PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind        text NOT NULL CHECK (kind IN ('verify', 'reset')),
+    expires_at  timestamptz NOT NULL,
+    used_at     timestamptz
+);

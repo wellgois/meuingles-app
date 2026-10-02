@@ -6,7 +6,7 @@
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const LEVEL_NAMES = { 1: "Sounds & Words", 2: "Sentences", 3: "Explain it", 4: "Your projects", 5: "Interview" };
   const SHORT_NAMES = { 1: "Sounds", 2: "Sentences", 3: "Explain it", 4: "Projects", 5: "Interview" };
-  const KEY = "meuingles.auth";
+  const KEY = "meuingles.session";
 
   const state = {
     auth: null,
@@ -37,11 +37,11 @@
 
   async function api(path, opts = {}) {
     const headers = { "Content-Type": "application/json" };
-    if (state.auth) { headers["X-User-Id"] = state.auth.uid; headers["X-Access-Code"] = state.auth.code; }
+    if (state.auth) headers.Authorization = "Bearer " + state.auth.token;
     const res = await fetch("api/" + path, { ...opts, headers });
     let data = null;
     try { data = await res.json(); } catch (e) {}
-    if (res.status === 401 && path !== "signin") { logout("Sua sessão expirou. Entre novamente."); throw new Error("401"); }
+    if (res.status === 401 && !path.startsWith("auth/") && path !== "me/delete") { logout("Sua sessão expirou. Entre novamente."); throw new Error("401"); }
     if (!res.ok) throw new Error((data && data.detail) || "Erro " + res.status + ". Tente de novo.");
     return data;
   }
@@ -67,28 +67,117 @@
     p.hidden = false;
   }
 
-  /* ---------- login ---------- */
+  /* ---------- conta: cadastro, login e senha ---------- */
+  let authMode = "signup", resetToken = null;
+  function setAuthMode(mode, msg) {
+    authMode = mode;
+    $("#tabSignup").setAttribute("aria-pressed", String(mode === "signup"));
+    $("#tabLogin").setAttribute("aria-pressed", String(mode === "login"));
+    $("#authTabs").hidden = mode === "forgot" || mode === "reset";
+    $("#fName").hidden = mode !== "signup";
+    $("#fTerms").hidden = mode !== "signup";
+    $("#fEmail").hidden = mode === "reset";
+    $("#fPass").hidden = mode === "forgot";
+    $("#passLabel").textContent = mode === "login" ? "Senha" : mode === "reset" ? "Nova senha (mínimo 8 caracteres)" : "Senha (mínimo 8 caracteres)";
+    $("#passInput").setAttribute("autocomplete", mode === "login" ? "current-password" : "new-password");
+    $("#forgotBtn").hidden = mode !== "login";
+    $("#authSubmit").textContent = { signup: "Criar conta grátis", login: "Entrar", forgot: "Enviar link", reset: "Salvar nova senha" }[mode];
+    const intro = { forgot: "Digite o e-mail da sua conta. Enviaremos um link para criar uma nova senha.", reset: "Crie uma nova senha para sua conta." }[mode];
+    $("#authIntro").textContent = intro || ""; $("#authIntro").hidden = !intro;
+    $("#authError").hidden = true; $("#authOk").hidden = !msg; $("#authOk").textContent = msg || "";
+  }
+  $("#tabSignup").addEventListener("click", () => setAuthMode("signup"));
+  $("#tabLogin").addEventListener("click", () => setAuthMode("login"));
+  $("#forgotBtn").addEventListener("click", () => setAuthMode("forgot"));
+
   function logout(msg) {
+    if (state.auth) fetch("api/auth/logout", { method: "POST", headers: { Authorization: "Bearer " + state.auth.token } }).catch(() => {});
     clearAuth(); state.auth = null;
     $("#tabs").hidden = true; $("#levelPill").hidden = true; $("#logoutBtn").hidden = true;
     show("login");
-    if (msg) { $("#loginError").textContent = msg; $("#loginError").hidden = false; }
+    setAuthMode("login");
+    if (msg) { $("#authError").textContent = msg; $("#authError").hidden = false; }
   }
   $("#logoutBtn").addEventListener("click", () => logout());
-  $("#loginForm").addEventListener("submit", async (e) => {
+
+  $("#authForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const name = $("#nameInput").value.trim();
-    const code = $("#codeInput").value;
-    const err = $("#loginError");
-    if (!name || !code) { err.textContent = "Preencha o nome e o código de acesso."; err.hidden = false; return; }
-    err.hidden = true;
+    const err = $("#authError"), ok = $("#authOk");
+    err.hidden = true; ok.hidden = true;
+    const name = $("#nameInput").value.trim(), email = $("#emailInput").value.trim(), password = $("#passInput").value;
+    const fail = (m) => { err.textContent = m; err.hidden = false; };
+    if (authMode !== "reset" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail("Digite um e-mail válido.");
+    if (authMode === "signup" && !name) return fail("Digite seu nome.");
+    if ((authMode === "signup" || authMode === "reset") && password.length < 8) return fail("A senha precisa ter pelo menos 8 caracteres.");
+    if (authMode === "login" && !password) return fail("Digite sua senha.");
+    if (authMode === "signup" && !$("#termsInput").checked) return fail("Para criar a conta, aceite os termos de uso e a política de privacidade.");
+    $("#authSubmit").disabled = true;
     try {
-      const prev = loadAuth();
-      const r = await api("signin", { method: "POST", body: JSON.stringify({ name, access_code: code, user_id: prev && prev.uid }) });
-      state.auth = { uid: r.user_id, code, name };
-      saveAuth(state.auth);
+      if (authMode === "forgot") {
+        await api("auth/forgot", { method: "POST", body: JSON.stringify({ email }) });
+        setAuthMode("login", "Se existir uma conta com esse e-mail, enviamos o link. Confira também o spam.");
+        return;
+      }
+      const path = { signup: "auth/signup", login: "auth/login", reset: "auth/reset" }[authMode];
+      const body = authMode === "signup" ? { name, email, password, accept_terms: true }
+        : authMode === "reset" ? { token: resetToken, password } : { email, password };
+      const r = await api(path, { method: "POST", body: JSON.stringify(body) });
+      state.auth = { token: r.token }; saveAuth(state.auth);
+      $("#passInput").value = "";
       start();
-    } catch (ex) { err.textContent = ex.message; err.hidden = false; }
+      if (authMode === "signup") toast(r.email_sent ? "Conta criada! Confirme seu e-mail para começar." : "Conta criada!");
+      if (authMode === "reset") toast("Senha alterada.");
+    } catch (ex) { if (ex.message !== "401") fail(ex.message); }
+    finally { $("#authSubmit").disabled = false; }
+  });
+
+  /* ---------- situação da conta ---------- */
+  function renderAccount(a) {
+    state.account = a;
+    $("#accEmail").textContent = a.email || "";
+    $("#delWrap").hidden = a.plan === "owner";
+    let h = "";
+    if (a.plan !== "owner" && !a.email_verified) {
+      h = '<div class="banner warn"><b>Confirme seu e-mail para começar a treinar.</b> Enviamos um link para ' + esc(a.email) +
+        '. <button class="linkbtn" id="resendBtn">Reenviar e-mail</button></div>';
+    } else if (a.plan === "trial") {
+      h = '<div class="banner"><b>Teste grátis:</b> ' + (a.days_left === 1 ? "último dia" : "faltam " + a.days_left + " dias") +
+        " · " + a.audio_used_min + " de " + a.audio_limit_min + " min de áudio avaliado</div>";
+    } else if (a.plan === "expired") {
+      h = '<div class="banner warn"><b>Seu teste grátis terminou.</b> Seu histórico continua salvo. A assinatura de R$ 29,90 por mês abre em breve. ' +
+        (a.wants_subscription ? "<br>Você está na lista: avisaremos por e-mail." : '<br><button class="btn small" id="wantBtn">Quero assinar quando abrir</button>') + "</div>";
+    }
+    $("#accountBanner").innerHTML = h;
+    if ($("#resendBtn")) $("#resendBtn").addEventListener("click", async () => {
+      try { const r = await api("auth/resend", { method: "POST" }); toast(r.already ? "Seu e-mail já está confirmado." : r.sent ? "E-mail reenviado. Confira também o spam." : "Não consegui enviar agora. Tente mais tarde."); }
+      catch (e) { if (e.message !== "401") toast(e.message); }
+    });
+    if ($("#wantBtn")) $("#wantBtn").addEventListener("click", async () => {
+      try { await api("me/interest", { method: "POST" }); a.wants_subscription = true; renderAccount(a); toast("Anotado! Avisaremos quando a assinatura abrir."); }
+      catch (e) { if (e.message !== "401") toast(e.message); }
+    });
+    if (a.is_admin) loadAdmin(); else $("#adminBox").innerHTML = "";
+  }
+  async function loadAdmin() {
+    try {
+      const s = await api("admin/stats");
+      const cell = (n, l) => '<div class="stat"><strong>' + n + "</strong><span>" + l + "</span></div>";
+      $("#adminBox").innerHTML = '<div class="block"><div class="row"><span class="label">Painel do administrador</span></div><div class="stats stats-admin">' +
+        cell(s.signups, "cadastros") + cell(s.verified, "e-mails confirmados") + cell(s.trial_active, "em teste") +
+        cell(s.trial_ended, "teste vencido") + cell(s.want_to_pay, "querem assinar") + cell(s.paying, "assinantes") +
+        cell(s.active_users_7d, "ativos em 7 dias") + cell(s.azure_min_month, "min de Azure no mês") + cell(s.llm_calls_7d, "correções IA em 7 dias") + "</div></div>";
+    } catch (e) { $("#adminBox").innerHTML = ""; }
+  }
+  $("#deleteBtn").addEventListener("click", () => { $("#deleteForm").hidden = false; $("#deletePass").focus(); });
+  $("#deleteCancel").addEventListener("click", () => { $("#deleteForm").hidden = true; $("#deletePass").value = ""; });
+  $("#deleteForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await api("me/delete", { method: "POST", body: JSON.stringify({ password: $("#deletePass").value }) });
+      clearAuth(); state.auth = null; $("#deleteForm").hidden = true;
+      $("#tabs").hidden = true; $("#levelPill").hidden = true; $("#logoutBtn").hidden = true;
+      show("login"); setAuthMode("signup", "Sua conta e seus dados foram excluídos.");
+    } catch (ex) { $("#deleteError").textContent = ex.message; $("#deleteError").hidden = false; }
   });
 
   /* ---------- início ---------- */
@@ -101,6 +190,7 @@
       const h = await api("home");
       state.homeDirty = false;
       setPill(h.level);
+      renderAccount(h.account);
       $("#helloTitle").textContent = greeting() + ", " + h.name.split(" ")[0];
       const left = h.to_next.needed - h.to_next.done;
       $("#helloSub").textContent = h.to_next.max_level
@@ -421,10 +511,14 @@
     try {
       const res = await fetch("api/attempts/audio?item_id=" + encodeURIComponent(it.id) + "&duration_ms=" + duration, {
         method: "POST", body: wav,
-        headers: { "Content-Type": "audio/wav", "X-User-Id": state.auth.uid, "X-Access-Code": state.auth.code },
+        headers: { "Content-Type": "audio/wav", Authorization: "Bearer " + state.auth.token },
       });
       let r = null; try { r = await res.json(); } catch (e) {}
       if (res.status === 401) { logout("Sua sessão expirou. Entre novamente."); return; }
+      if (!res.ok && res.status < 500) {
+        $("#result").innerHTML = '<div class="notice">' + esc((r && r.detail) || "Erro " + res.status) + "</div>";
+        return;
+      }
       if (!res.ok) {
         $("#result").innerHTML = '<div class="notice">' + esc((r && r.detail) || "Erro " + res.status) +
           '<br><button class="btn ghost small" id="useBrowser" style="margin-top:8px">Usar o reconhecimento do navegador</button></div>';
@@ -570,7 +664,19 @@
     state.homeDirty = state.progressDirty = true;
     show("home");
   }
+  const params = new URLSearchParams(location.search);
+  if (params.has("verified") || params.has("reset")) history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("meuingles.auth"); } catch (e) {}
   state.auth = loadAuth();
-  if (state.auth && state.auth.uid && state.auth.code) start();
-  else { const prev = loadAuth(); if (prev && prev.name) $("#nameInput").value = prev.name; show("login"); }
+  if (params.get("reset")) {
+    resetToken = params.get("reset"); show("login"); setAuthMode("reset");
+  } else if (state.auth && state.auth.token) {
+    start();
+    if (params.get("verified") === "1") toast("E-mail confirmado! Bom treino.");
+    if (params.get("verified") === "0") toast("Esse link de confirmação venceu. Peça um novo no aviso da tela inicial.");
+  } else {
+    show("login");
+    setAuthMode(params.has("verified") ? "login" : "signup",
+      params.get("verified") === "1" ? "E-mail confirmado! Entre para começar." : params.get("verified") === "0" ? "Link vencido. Entre e peça um novo." : "");
+  }
 })();

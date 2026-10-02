@@ -1,4 +1,3 @@
-import hmac
 import json
 import os
 import time
@@ -6,17 +5,17 @@ import uuid
 from pathlib import Path
 
 import psycopg
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from . import azure_speech, content, llm
+from . import auth, azure_speech, content, jobs, llm, mailer
 from .scoring import SHORT, score_open, score_repeat
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@localhost/meuingles")
-ACCESS_CODE = os.environ.get("APP_ACCESS_CODE", "")
 WEB_DIR = Path(os.environ.get("WEB_DIR", Path(__file__).resolve().parents[2] / "web"))
 TZ = "America/Sao_Paulo"
 INTERVALS = [1, 3, 7, 14, 30]
@@ -36,24 +35,14 @@ def init_schema():
         try:
             with db() as conn:
                 conn.execute(sql)
+            jobs.start(db)
             return
         except psycopg.OperationalError:
             time.sleep(2)
     raise RuntimeError("Banco de dados indisponível depois de 60 s")
 
 
-def current_user(x_user_id: str = Header(""), x_access_code: str = Header("")):
-    if not ACCESS_CODE or not hmac.compare_digest(x_access_code, ACCESS_CODE):
-        raise HTTPException(401, "Código de acesso inválido.")
-    try:
-        uid = uuid.UUID(x_user_id)
-    except ValueError:
-        raise HTTPException(401, "Usuário não identificado. Entre novamente.")
-    with db() as conn:
-        user = conn.execute("SELECT * FROM users WHERE id = %s", (uid,)).fetchone()
-    if not user:
-        raise HTTPException(401, "Usuário não encontrado. Entre novamente.")
-    return user
+current_user = auth.make_current_user(db)
 
 
 # ---------- públicos ----------
@@ -63,31 +52,202 @@ def health():
     with db() as conn:
         conn.execute("SELECT 1")
     return {"ok": True, "engine": "azure" if azure_speech.configured() else "browser",
-            "azure_configured": azure_speech.configured(), "llm_configured": llm.configured()}
+            "azure_configured": azure_speech.configured(), "llm_configured": llm.configured(),
+            "contact": os.environ.get("CONTACT_EMAIL", "")}
 
 
-class SignIn(BaseModel):
+# ---------- contas ----------
+
+class SignUp(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    access_code: str
-    user_id: str | None = None
+    email: str = Field(max_length=200)
+    password: str = Field(min_length=8, max_length=200)
+    accept_terms: bool
 
 
-@app.post("/api/signin")
-def signin(body: SignIn):
-    if not ACCESS_CODE or not hmac.compare_digest(body.access_code, ACCESS_CODE):
-        raise HTTPException(401, "Código de acesso inválido.")
+class Login(BaseModel):
+    email: str = Field(max_length=200)
+    password: str = Field(max_length=200)
+
+
+class Forgot(BaseModel):
+    email: str = Field(max_length=200)
+
+
+class Reset(BaseModel):
+    token: str = Field(max_length=200)
+    password: str = Field(min_length=8, max_length=200)
+
+
+class Confirm(BaseModel):
+    password: str = Field(max_length=200)
+
+
+def open_session(conn, user_id) -> str:
+    tok, h = auth.new_token()
+    conn.execute(f"INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (%s, %s, now() + interval '{auth.SESSION_DAYS} days')",
+                 (h, user_id))
+    return tok
+
+
+def send_verify(conn, user) -> bool:
+    tok, h = auth.new_token()
+    conn.execute("INSERT INTO email_tokens (token_hash, user_id, kind, expires_at) VALUES (%s, %s, 'verify', now() + interval '1 day')",
+                 (h, user["id"]))
+    return mailer.send(user["email"], "Confirme seu e-mail no MeuInglês", [
+        f"Oi, {user['name'].split(' ')[0]}! Falta só confirmar seu e-mail para começar o teste grátis de 7 dias.",
+        "O link vale por 24 horas."], ("Confirmar e-mail", mailer.base_url() + "api/auth/verify?token=" + tok))
+
+
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+@app.post("/api/auth/signup")
+def signup(body: SignUp, request: Request):
+    auth.rate_limit("signup:" + client_ip(request), 5, 3600)
+    email = body.email.strip().lower()
+    if not auth.valid_email(email):
+        raise HTTPException(422, "Digite um e-mail válido.")
+    if not body.accept_terms:
+        raise HTTPException(422, "Para criar a conta, aceite os termos de uso e a política de privacidade.")
     with db() as conn:
-        if body.user_id:
-            try:
-                row = conn.execute("SELECT id FROM users WHERE id = %s", (uuid.UUID(body.user_id),)).fetchone()
-            except ValueError:
-                row = None
-            if row:
-                conn.execute("UPDATE users SET name = %s WHERE id = %s", (body.name.strip(), row["id"]))
-                return {"user_id": str(row["id"])}
-        uid = uuid.uuid4()
-        conn.execute("INSERT INTO users (id, name) VALUES (%s, %s)", (uid, body.name.strip()))
-    return {"user_id": str(uid)}
+        with conn.transaction():
+            if conn.execute("SELECT 1 FROM users WHERE lower(email) = %s", (email,)).fetchone():
+                raise HTTPException(409, "Já existe uma conta com esse e-mail. Entre ou use 'Esqueci minha senha'.")
+            uid = uuid.uuid4()
+            user = conn.execute(
+                f"""INSERT INTO users (id, name, email, pass_hash, plan, trial_ends_at, terms_accepted_at)
+                    VALUES (%s, %s, %s, %s, 'trial', now() + interval '{auth.TRIAL_DAYS} days', now()) RETURNING *""",
+                (uid, body.name.strip(), email, auth.hash_password(body.password))).fetchone()
+            tok = open_session(conn, uid)
+        sent = send_verify(conn, user)
+    return {"token": tok, "email_sent": sent}
+
+
+@app.post("/api/auth/login")
+def login(body: Login, request: Request):
+    email = body.email.strip().lower()
+    auth.rate_limit("login:" + client_ip(request) + ":" + email, 10, 900)
+    with db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE lower(email) = %s", (email,)).fetchone()
+        if not user or not auth.check_password(body.password, user["pass_hash"]):
+            raise HTTPException(401, "E-mail ou senha incorretos.")
+        return {"token": open_session(conn, user["id"])}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    h = request.headers.get("authorization", "")
+    with db() as conn:
+        conn.execute("DELETE FROM sessions WHERE token_hash = %s", (auth.token_hash(h[7:]),))
+    return {"ok": True}
+
+
+@app.get("/api/auth/verify")
+def verify(token: str = ""):
+    with db() as conn:
+        row = conn.execute("""UPDATE email_tokens SET used_at = now() WHERE token_hash = %s AND kind = 'verify'
+                              AND used_at IS NULL AND expires_at > now() RETURNING user_id""",
+                           (auth.token_hash(token),)).fetchone()
+        if row:
+            conn.execute("UPDATE users SET email_verified = true WHERE id = %s", (row["user_id"],))
+    return RedirectResponse(mailer.base_url() + ("?verified=1" if row else "?verified=0"))
+
+
+@app.post("/api/auth/resend")
+def resend(request: Request, user=Depends(current_user)):
+    auth.rate_limit("resend:" + str(user["id"]), 3, 3600)
+    if user["email_verified"]:
+        return {"sent": False, "already": True}
+    with db() as conn:
+        return {"sent": send_verify(conn, user)}
+
+
+@app.post("/api/auth/forgot")
+def forgot(body: Forgot, request: Request):
+    auth.rate_limit("forgot:" + client_ip(request), 5, 3600)
+    email = body.email.strip().lower()
+    with db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE lower(email) = %s", (email,)).fetchone()
+        if user:
+            tok, h = auth.new_token()
+            conn.execute("INSERT INTO email_tokens (token_hash, user_id, kind, expires_at) VALUES (%s, %s, 'reset', now() + interval '1 hour')",
+                         (h, user["id"]))
+            mailer.send(user["email"], "Crie uma nova senha no MeuInglês", [
+                "Recebemos um pedido para trocar a senha da sua conta. O link vale por 1 hora.",
+                "Se não foi você, ignore este e-mail: sua senha continua a mesma."],
+                ("Criar nova senha", mailer.base_url() + "?reset=" + tok))
+    return {"ok": True}
+
+
+@app.post("/api/auth/reset")
+def reset(body: Reset):
+    with db() as conn:
+        with conn.transaction():
+            row = conn.execute("""UPDATE email_tokens SET used_at = now() WHERE token_hash = %s AND kind = 'reset'
+                                  AND used_at IS NULL AND expires_at > now() RETURNING user_id""",
+                               (auth.token_hash(body.token),)).fetchone()
+            if not row:
+                raise HTTPException(400, "Link vencido ou já usado. Peça um novo em 'Esqueci minha senha'.")
+            conn.execute("UPDATE users SET pass_hash = %s, email_verified = true WHERE id = %s",
+                         (auth.hash_password(body.password), row["user_id"]))
+            conn.execute("DELETE FROM sessions WHERE user_id = %s", (row["user_id"],))
+            return {"token": open_session(conn, row["user_id"])}
+
+
+def account_info(conn, user) -> dict:
+    a = auth.access(user)
+    limit = auth.audio_limit_ms(a["plan"])
+    used = auth.audio_used_ms(conn, user, a["plan"])
+    a.update({"name": user["name"], "email": user["email"], "wants_subscription": user["wants_subscription_at"] is not None,
+              "audio_used_min": round(used / 60000), "audio_limit_min": None if limit is None else round(limit / 60000)})
+    return a
+
+
+@app.get("/api/me")
+def me(user=Depends(current_user)):
+    with db() as conn:
+        return account_info(conn, user)
+
+
+@app.post("/api/me/interest")
+def interest(user=Depends(current_user)):
+    with db() as conn:
+        conn.execute("UPDATE users SET wants_subscription_at = coalesce(wants_subscription_at, now()) WHERE id = %s", (user["id"],))
+    return {"ok": True}
+
+
+@app.post("/api/me/delete")
+def delete_account(body: Confirm, user=Depends(current_user)):
+    if user["plan"] == "owner":
+        raise HTTPException(400, "A conta do dono não pode ser excluída pelo app.")
+    if not auth.check_password(body.password, user["pass_hash"]):
+        raise HTTPException(401, "Senha incorreta.")
+    with db() as conn:
+        conn.execute("DELETE FROM users WHERE id = %s", (user["id"],))
+    return {"ok": True}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(user=Depends(current_user)):
+    if not user["is_admin"]:
+        raise HTTPException(403, "Acesso restrito.")
+    with db() as conn:
+        u = conn.execute("""SELECT count(*) FILTER (WHERE plan <> 'owner') AS signups,
+                                   count(*) FILTER (WHERE plan <> 'owner' AND email_verified) AS verified,
+                                   count(*) FILTER (WHERE plan = 'trial' AND trial_ends_at > now()) AS trial_active,
+                                   count(*) FILTER (WHERE plan = 'trial' AND trial_ends_at <= now()) AS trial_ended,
+                                   count(*) FILTER (WHERE wants_subscription_at IS NOT NULL) AS want_to_pay,
+                                   count(*) FILTER (WHERE plan = 'active') AS paying
+                            FROM users""").fetchone()
+        a = conn.execute("""SELECT count(*) AS attempts_7d, count(DISTINCT user_id) AS active_users_7d,
+                                   round(coalesce(sum(audio_ms), 0) / 60000.0) AS azure_min_7d,
+                                   count(*) FILTER (WHERE used_llm) AS llm_calls_7d
+                            FROM attempts WHERE created_at > now() - interval '7 days'""").fetchone()
+        m = conn.execute("""SELECT round(coalesce(sum(audio_ms), 0) / 60000.0) AS azure_min_month FROM attempts
+                            WHERE created_at >= date_trunc('month', now())""").fetchone()
+    return {**u, **a, **m}
 
 
 # ---------- conteúdo ----------
@@ -148,18 +308,19 @@ def update_reviews(conn, user_id, weak, ok):
                 (nxt, today, nxt, user_id, w))
 
 
-def save_attempt(user, level, item, transcript, result, engine, duration_ms, request_meta):
+def save_attempt(user, level, item, transcript, result, engine, duration_ms, request_meta, audio_ms=None):
     s = result["scores"]
     with db() as conn:
         with conn.transaction():
             row = conn.execute(
                 """INSERT INTO attempts (user_id, level, item_id, target_text, transcript, engine, main_score,
-                       accuracy, completeness, confidence, fluency, duration_ms, word_count, raw)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                       accuracy, completeness, confidence, fluency, duration_ms, word_count, raw, audio_ms, used_llm)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (user["id"], level, item["id"], item["text"], transcript, engine, result["main"],
                  s.get("accuracy"), s.get("completeness"), s.get("confidence"), s.get("fluency"), duration_ms,
                  len(transcript.split()),
-                 json.dumps({"request": request_meta, "result": result}, ensure_ascii=False))).fetchone()
+                 json.dumps({"request": request_meta, "result": result}, ensure_ascii=False), audio_ms,
+                 "llm" in result)).fetchone()
             for seq, w in enumerate(result["words"]):
                 conn.execute(
                     """INSERT INTO attempt_words (attempt_id, seq, position, expected, heard, status, score)
@@ -177,7 +338,11 @@ def save_attempt(user, level, item, transcript, result, engine, duration_ms, req
             "level_up": level_up, "level_up_name": content.LEVEL_NAMES.get(level_up) if level_up else None}
 
 
-def add_llm(result, item, transcript):
+def add_llm(result, item, transcript, allowed=True):
+    if not allowed:
+        result["tips"] = [t for t in result["tips"] if "chave do LLM" not in t["text"]]
+        result["tips"].append({"word": "", "ipa": "", "text": "Você chegou ao limite de correções com IA de hoje. Amanhã ele renova."})
+        return result
     fb = llm.feedback(item["kind"], item["text"], transcript, item.get("keywords"))
     if not fb:
         return result
@@ -194,6 +359,7 @@ def add_llm(result, item, transcript):
 
 @app.post("/api/attempts")
 def create_attempt(body: AttemptIn, user=Depends(current_user)):
+    plan = auth.require_practice(user)
     level, item = content.find_item(body.item_id)
     if not item:
         raise HTTPException(404, "Exercício não encontrado.")
@@ -207,13 +373,16 @@ def create_attempt(body: AttemptIn, user=Depends(current_user)):
     else:
         result = score_open(item["kind"], transcript, body.duration_ms, item.get("keywords"))
         result["engine"] = "browser"
-        result = add_llm(result, item, transcript)
+        with db() as conn:
+            allowed = auth.llm_allowed(conn, user, plan)
+        result = add_llm(result, item, transcript, allowed)
     return save_attempt(user, level, item, transcript, result, "browser", body.duration_ms, body.model_dump())
 
 
 @app.post("/api/attempts/audio")
 async def create_attempt_audio(request: Request, item_id: str, duration_ms: int | None = None,
                                user=Depends(current_user)):
+    plan = auth.require_practice(user)
     if not azure_speech.configured():
         raise HTTPException(503, "A avaliação por fonema ainda não está configurada.")
     level, item = content.find_item(item_id)
@@ -222,6 +391,14 @@ async def create_attempt_audio(request: Request, item_id: str, duration_ms: int 
     wav = await request.body()
     if len(wav) < 1000 or len(wav) > 4_000_000 or wav[:4] != b"RIFF":
         raise HTTPException(422, "Gravação inválida. Tente de novo.")
+    audio_ms = (len(wav) - 44) // 32
+    limit = auth.audio_limit_ms(plan)
+    if limit is not None:
+        with db() as conn:
+            used = auth.audio_used_ms(conn, user, plan)
+        if used + audio_ms > limit:
+            raise HTTPException(402, f"Você usou os {limit // 60000} minutos de áudio avaliado do seu plano. "
+                                     "Os níveis 3 e 4 continuam disponíveis.")
     try:
         nb = await run_in_threadpool(azure_speech.assess, wav, item["text"])
     except azure_speech.AzureError as e:
@@ -229,7 +406,7 @@ async def create_attempt_audio(request: Request, item_id: str, duration_ms: int 
     result = azure_speech.score_azure(item["text"], nb)
     transcript = result.pop("transcript") or "(sem transcrição)"
     meta = {"item_id": item_id, "duration_ms": duration_ms, "audio_bytes": len(wav)}
-    return await run_in_threadpool(save_attempt, user, level, item, transcript, result, "azure", duration_ms, meta)
+    return await run_in_threadpool(save_attempt, user, level, item, transcript, result, "azure", duration_ms, meta, audio_ms)
 
 
 # ---------- treino por som ----------
@@ -287,7 +464,9 @@ def home(user=Depends(current_user)):
                WHERE user_id = %s AND next_due <= %s ORDER BY misses DESC, next_due LIMIT 8""",
             (uid, today)).fetchall()
         progress = streak_progress(conn, uid, user["level"])
+        account = account_info(conn, user)
     return {
+        "account": account,
         "name": user["name"], "level": user["level"], "level_name": content.LEVEL_NAMES[user["level"]],
         "streak": streak, "total": stats["total"], "today": stats["today"],
         "avg7": int(stats["avg7"]) if stats["avg7"] is not None else None,

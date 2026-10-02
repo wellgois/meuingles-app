@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidade · MeuInglês</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="doc">
+  <p><a href="./">← Voltar ao MeuInglês</a></p>
+  <h2>Política de privacidade</h2>
+  <p class="muted">Versão de 2 de outubro de 2026. Segue a Lei Geral de Proteção de Dados (Lei 13.709/2018).</p>
+
+  <h3>Quem é o responsável</h3>
+  <p>O controlador dos dados é Wellington Gois, responsável pelo MeuInglês, no Rio de Janeiro. Contato: <span class="contact">pelo e-mail de contato do MeuInglês</span>.</p>
+
+  <h3>Que dados coletamos</h3>
+  <ul>
+    <li><b>Conta:</b> nome, e-mail e senha (guardada só como hash, nunca em texto).</li>
+    <li><b>Treinos:</b> o texto reconhecido da sua fala, as notas por palavra e por som, a duração e a data de cada tentativa.</li>
+    <li><b>Áudio:</b> sua gravação é enviada para avaliação e <b>não é guardada</b> pelo MeuInglês.</li>
+    <li><b>Técnicos:</b> endereço IP, usado só para limitar tentativas de login e evitar abuso.</li>
+  </ul>
+
+  <h3>Para que usamos</h3>
+  <p>Para criar e manter sua conta, avaliar seus treinos, mostrar sua evolução, enviar e-mails sobre a conta (confirmação, senha e aviso do fim do teste) e melhorar o app com estatísticas agregadas. A base legal é a execução do contrato de uso e, para os e-mails sobre a conta, o legítimo interesse.</p>
+
+  <h3>Com quem compartilhamos</h3>
+  <p>Só com fornecedores necessários para o serviço funcionar:</p>
+  <ul>
+    <li><b>Microsoft Azure Speech:</b> recebe o áudio de cada gravação dos níveis 1 e 2 para avaliar a pronúncia.</li>
+    <li><b>Anthropic (Claude):</b> recebe o texto das respostas dos níveis 3 e 4 para corrigir a gramática.</li>
+    <li><b>Brevo:</b> envia os e-mails da conta.</li>
+    <li><b>Hostinger:</b> hospeda o servidor e o banco de dados.</li>
+  </ul>
+  <p>Alguns desses fornecedores processam dados fora do Brasil, com cláusulas de proteção previstas em seus contratos. Não vendemos seus dados e não os usamos para publicidade.</p>
+
+  <h3>Por quanto tempo guardamos</h3>
+  <p>Enquanto sua conta existir. Ao excluir a conta, sua conta, seus treinos e seu caderno de erros são apagados na hora do banco de dados. Estatísticas usadas no portfólio de engenharia de dados do projeto são sempre agregadas e pseudonimizadas, sem nome nem e-mail.</p>
+
+  <h3>Seus direitos</h3>
+  <p>Você pode pedir acesso, correção, portabilidade ou exclusão dos seus dados, e saber com quem eles foram compartilhados. A exclusão pode ser feita direto no app, em "Excluir conta"; os demais pedidos, pelo e-mail de contato.</p>
+
+  <h3>Segurança</h3>
+  <p>A conexão é sempre criptografada (HTTPS), as senhas são guardadas com hash e as chaves dos fornecedores ficam só no servidor.</p>
+
+  <h3>Mudanças</h3>
+  <p>Se esta política mudar, a nova versão terá outra data no topo e avisaremos no app.</p>
+</main>
+<script>fetch("api/health").then(r => r.json()).then(h => { if (h.contact) document.querySelectorAll(".contact").forEach(e => e.textContent = h.contact); }).catch(() => {});</script>
+</body>
+</html>
