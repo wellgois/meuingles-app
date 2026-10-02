@@ -24,6 +24,15 @@ MAX_LEVEL_BASIC = 4
 app = FastAPI(title="MeuInglês API", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 
+@app.middleware("http")
+async def fresh_pages(request: Request, call_next):
+    """Faz o navegador conferir a versão das páginas a cada visita (responde 304 se nada mudou)."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 def db():
     return psycopg.connect(DB_URL, row_factory=dict_row, autocommit=True)
 
@@ -63,6 +72,7 @@ class SignUp(BaseModel):
     email: str = Field(max_length=200)
     password: str = Field(min_length=8, max_length=200)
     accept_terms: bool
+    track: str | None = None
 
 
 class Login(BaseModel):
@@ -111,15 +121,16 @@ def signup(body: SignUp, request: Request):
         raise HTTPException(422, "Digite um e-mail válido.")
     if not body.accept_terms:
         raise HTTPException(422, "Para criar a conta, aceite os termos de uso e a política de privacidade.")
+    track = body.track if body.track in content.TRACKS else None
     with db() as conn:
         with conn.transaction():
             if conn.execute("SELECT 1 FROM users WHERE lower(email) = %s", (email,)).fetchone():
                 raise HTTPException(409, "Já existe uma conta com esse e-mail. Entre ou use 'Esqueci minha senha'.")
             uid = uuid.uuid4()
             user = conn.execute(
-                f"""INSERT INTO users (id, name, email, pass_hash, plan, trial_ends_at, terms_accepted_at)
-                    VALUES (%s, %s, %s, %s, 'trial', now() + interval '{auth.TRIAL_DAYS} days', now()) RETURNING *""",
-                (uid, body.name.strip(), email, auth.hash_password(body.password))).fetchone()
+                f"""INSERT INTO users (id, name, email, pass_hash, plan, trial_ends_at, terms_accepted_at, target_level)
+                    VALUES (%s, %s, %s, %s, 'trial', now() + interval '{auth.TRIAL_DAYS} days', now(), %s) RETURNING *""",
+                (uid, body.name.strip(), email, auth.hash_password(body.password), track)).fetchone()
             tok = open_session(conn, uid)
         sent = send_verify(conn, user)
     return {"token": tok, "email_sent": sent}
@@ -152,7 +163,7 @@ def verify(token: str = ""):
                            (auth.token_hash(token),)).fetchone()
         if row:
             conn.execute("UPDATE users SET email_verified = true WHERE id = %s", (row["user_id"],))
-    return RedirectResponse(mailer.base_url() + ("?verified=1" if row else "?verified=0"))
+    return RedirectResponse(mailer.base_url() + ("app/?verified=1" if row else "app/?verified=0"))
 
 
 @app.post("/api/auth/resend")
@@ -177,7 +188,7 @@ def forgot(body: Forgot, request: Request):
             mailer.send(user["email"], "Crie uma nova senha no MeuInglês", [
                 "Recebemos um pedido para trocar a senha da sua conta. O link vale por 1 hora.",
                 "Se não foi você, ignore este e-mail: sua senha continua a mesma."],
-                ("Criar nova senha", mailer.base_url() + "?reset=" + tok))
+                ("Criar nova senha", mailer.base_url() + "app/?reset=" + tok))
     return {"ok": True}
 
 
@@ -201,6 +212,7 @@ def account_info(conn, user) -> dict:
     limit = auth.audio_limit_ms(a["plan"])
     used = auth.audio_used_ms(conn, user, a["plan"])
     a.update({"name": user["name"], "email": user["email"], "wants_subscription": user["wants_subscription_at"] is not None,
+              "track": user.get("target_level"), "tracks": content.TRACKS,
               "audio_used_min": round(used / 60000), "audio_limit_min": None if limit is None else round(limit / 60000)})
     return a
 
@@ -216,6 +228,19 @@ def interest(user=Depends(current_user)):
     with db() as conn:
         conn.execute("UPDATE users SET wants_subscription_at = coalesce(wants_subscription_at, now()) WHERE id = %s", (user["id"],))
     return {"ok": True}
+
+
+class TrackIn(BaseModel):
+    track: str
+
+
+@app.post("/api/me/track")
+def set_track(body: TrackIn, user=Depends(current_user)):
+    if body.track not in content.TRACKS:
+        raise HTTPException(422, "Escolha uma das trilhas.")
+    with db() as conn:
+        conn.execute("UPDATE users SET target_level = %s WHERE id = %s", (body.track, user["id"]))
+    return {"ok": True, "track": body.track}
 
 
 @app.post("/api/me/delete")
@@ -256,7 +281,7 @@ def admin_stats(user=Depends(current_user)):
 def get_content(level: int, user=Depends(current_user)):
     if level not in (1, 2, 3, 4):
         raise HTTPException(404, "Nível ainda não disponível.")
-    return {"level": level, "name": content.LEVEL_NAMES[level], "items": content.items_for_level(level)}
+    return {"level": level, "name": content.LEVEL_NAMES[level], "items": content.items_for_level(level, user.get("target_level"))}
 
 
 # ---------- tentativas ----------

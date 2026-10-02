@@ -3,156 +3,129 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>MeuInglês</title>
+<title>MeuInglês · inglês falado para entrevistas de dados</title>
+<meta name="description" content="Grave sua voz, receba nota som por som e a versão natural das suas respostas de entrevista de engenharia de dados. 7 dias grátis, sem cartão.">
 <meta name="theme-color" content="#0E6F7A">
+<link rel="canonical" href="https://meuingles.wellgois.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MeuInglês">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:url" content="https://meuingles.wellgois.com/">
+<meta property="og:title" content="MeuInglês · inglês falado para entrevistas de dados">
+<meta property="og:description" content="Grave sua voz, receba nota som por som e a versão natural das suas respostas. 7 dias grátis, sem cartão.">
+<meta property="og:image" content="https://meuingles.wellgois.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="MeuInglês: a palavra idempotent avaliada som por som">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Sans+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="style.css">
+<script>
+  // Links antigos de e-mail e o app instalado na tela inicial vão direto para o app.
+  (function () {
+    var q = location.search;
+    if (/[?&](verified|reset)=/.test(q) || matchMedia("(display-mode: standalone)").matches) location.replace("/app/" + q);
+  })();
+</script>
 </head>
-<body>
-<div class="app" id="app">
-  <header class="top">
-    <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>MeuInglês</div>
-    <div class="top-right">
-      <span class="pill" id="levelPill" hidden></span>
-      <button class="icon-btn" id="logoutBtn" hidden aria-label="Sair">Sair</button>
+<body class="lp">
+<header class="lp-top">
+  <a class="brand" href="./"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>MeuInglês</a>
+  <a class="lp-login" id="topLink" href="app/?m=login">Entrar</a>
+</header>
+
+<main class="lp-main">
+  <section class="lp-hero">
+    <div class="lp-copy">
+      <p class="label">Inglês falado para engenharia de dados</p>
+      <h1>Responda entrevistas de dados em inglês sem travar.</h1>
+      <p class="lp-sub">Você grava a sua voz e recebe a nota de cada som, a correção da sua resposta e uma versão mais natural para treinar de novo. Tudo com o vocabulário que aparece nas vagas: pipeline, partition, idempotent, latency.</p>
+      <div class="lp-cta">
+        <a class="btn" id="heroCta" href="app/">Começar 7 dias grátis</a>
+        <span class="muted">Sem cartão. Depois, R$ 29,90 por mês.</span>
+      </div>
     </div>
-  </header>
 
-  <main>
-    <!-- CONTA: cadastro, login, senha -->
-    <section class="screen" id="s-login" hidden>
-      <div class="hello"><h2>Inglês falado para entrevistas de dados</h2><p>Grave sua voz, receba nota som por som e correção da IA. 7 dias grátis, sem cartão.</p></div>
-      <ul class="pitch">
-        <li>Pronúncia avaliada som por som pelo Azure</li>
-        <li>Correção de gramática e versão natural das suas respostas</li>
-        <li>Perguntas de entrevista de engenharia de dados no formato STAR</li>
-      </ul>
-      <div class="seg" id="authTabs">
-        <button type="button" id="tabSignup" aria-pressed="true">Criar conta</button>
-        <button type="button" id="tabLogin" aria-pressed="false">Entrar</button>
+    <figure class="lp-demo" aria-label="Exemplo de avaliação de pronúncia">
+      <div class="row"><span class="label">Nível 1 · Sounds &amp; Words</span><span class="lp-score">72</span></div>
+      <p class="lp-word">idempotent</p>
+      <div class="lp-phones">
+        <span class="ph good">aɪ<small>96</small></span><span class="ph good">d<small>91</small></span><span class="ph warn">ə<small>68</small></span><span class="ph good">m<small>88</small></span><span class="ph bad">poʊ<small>41</small></span><span class="ph good">t<small>85</small></span><span class="ph warn">ə<small>64</small></span><span class="ph good">nt<small>82</small></span>
       </div>
-      <form class="block" id="authForm" novalidate>
-        <p class="muted" id="authIntro" hidden></p>
-        <label class="field" id="fName"><span class="label">Seu nome</span><input id="nameInput" autocomplete="name" maxlength="60"></label>
-        <label class="field" id="fEmail"><span class="label">E-mail</span><input id="emailInput" type="email" autocomplete="email" maxlength="200"></label>
-        <label class="field" id="fPass"><span class="label" id="passLabel">Senha (mínimo 8 caracteres)</span><input id="passInput" type="password" autocomplete="new-password" maxlength="200"></label>
-        <label class="check" id="fTerms"><input type="checkbox" id="termsInput"><span>Li e aceito os <a href="termos.html" target="_blank" rel="noopener">termos de uso</a> e a <a href="privacidade.html" target="_blank" rel="noopener">política de privacidade</a>.</span></label>
-        <p class="error" id="authError" hidden></p>
-        <p class="ok-msg" id="authOk" hidden></p>
-        <button class="btn" type="submit" id="authSubmit">Criar conta grátis</button>
-        <button type="button" class="linkbtn" id="forgotBtn" hidden>Esqueci minha senha</button>
-      </form>
-    </section>
+      <svg class="lp-wave" viewBox="0 0 320 48" aria-hidden="true"><path d="M0 24h12M18 16v16M26 8v32M34 14v20M42 4v40M50 12v24M58 18v12M66 6v36M74 10v28M82 20v8M90 2v44M98 14v20M106 8v32M114 18v12M122 6v36M130 12v24M138 20v8M146 10v28M154 4v40M162 16v16M170 8v32M178 14v20M186 20v8M194 6v36M202 12v24M210 16v16M218 4v40M226 10v28M234 18v12M242 8v32M250 14v20M258 20v8M266 12v24M274 16v16M282 22v4M290 24h30" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>
+      <figcaption class="lp-tip"><b>Dica no som /oʊ/:</b> em “poʊ”, a boca começa aberta e fecha num “u” curto. Não diga “pó”.</figcaption>
+    </figure>
+  </section>
 
-    <!-- HOME -->
-    <section class="screen" id="s-home" hidden>
-      <div id="accountBanner"></div>
-      <div class="hello"><h2 id="helloTitle">Hello</h2><p id="helloSub"></p></div>
-      <div class="block">
-        <div class="row"><span class="label">Trilha</span><span class="label" id="trackLabel"></span></div>
-        <div class="levels" id="levelsBar" aria-label="Progresso nos níveis"></div>
-        <div class="stats">
-          <div class="stat"><strong id="stStreak">0</strong><span>dias seguidos</span></div>
-          <div class="stat"><strong id="stAvg">–</strong><span>acerto médio em 7 dias</span></div>
-          <div class="stat"><strong id="stTotal">0</strong><span>tentativas</span></div>
-        </div>
-      </div>
-      <div class="block">
-        <div class="row"><span class="label">Revisão de hoje · caderno de erros</span></div>
-        <ul class="review" id="reviewList"></ul>
-        <p class="muted" id="reviewEmpty" hidden>Nada para revisar hoje. As palavras que você errar voltam aqui em 1, 3, 7, 14 e 30 dias.</p>
-        <button class="btn" data-go="practice">Começar treino</button>
-      </div>
-      <div id="adminBox"></div>
-      <div class="account-foot">
-        <span id="accEmail"></span>
-        <span><a href="termos.html" target="_blank" rel="noopener">Termos</a> · <a href="privacidade.html" target="_blank" rel="noopener">Privacidade</a><span id="delWrap"> · <button type="button" class="linkbtn" id="deleteBtn">Excluir conta</button></span></span>
-      </div>
-      <form class="block" id="deleteForm" hidden novalidate>
-        <span class="label">Excluir conta</span>
-        <p class="muted">Apaga sua conta, seus treinos e seu caderno de erros para sempre. Digite sua senha para confirmar.</p>
-        <label class="field"><span class="label">Senha</span><input id="deletePass" type="password" autocomplete="current-password"></label>
-        <p class="error" id="deleteError" hidden></p>
-        <div class="row-tight"><button class="btn danger" type="submit">Excluir para sempre</button><button class="btn ghost" type="button" id="deleteCancel">Cancelar</button></div>
-      </form>
-    </section>
+  <section class="lp-section">
+    <h2>Como funciona</h2>
+    <ol class="lp-steps">
+      <li><b>Ouça e grave.</b> Uma palavra, uma frase ou uma resposta inteira de entrevista, direto no navegador do celular ou do computador.</li>
+      <li><b>Veja onde errou.</b> O Azure Speech dá nota para cada som. A IA corrige a gramática das respostas longas e sugere uma versão mais natural.</li>
+      <li><b>Volte no erro certo.</b> As palavras que você erra entram no caderno de erros e voltam em 1, 3, 7, 14 e 30 dias.</li>
+    </ol>
+  </section>
 
-    <!-- PRACTICE -->
-    <section class="screen" id="s-practice" hidden>
-      <div class="chips" role="group" aria-label="Escolher nível" id="levelChips">
-        <button class="chip" data-lv="1" aria-pressed="false">1 · Sounds</button>
-        <button class="chip" data-lv="2" aria-pressed="false">2 · Sentences</button>
-        <button class="chip" data-lv="3" aria-pressed="false">3 · Explain it</button>
-        <button class="chip" data-lv="4" aria-pressed="false">4 · Your projects</button>
-        <button class="chip" id="soundChip" aria-pressed="false">Por som</button>
-      </div>
-      <div id="soundsPanel" class="screen" hidden></div>
-      <div class="block prompt">
-        <div class="row">
-          <span class="label" id="pLabel"></span>
-          <div class="row-tight">
-            <button class="play" id="prevBtn" aria-label="Exercício anterior"><svg viewBox="0 0 10 10"><path d="M7 1L2 5l5 4z"/></svg></button>
-            <span class="counter" id="pCounter"></span>
-            <button class="play" id="nextBtn" aria-label="Próximo exercício"><svg viewBox="0 0 10 10"><path d="M3 1l5 4-5 4z"/></svg></button>
-          </div>
-        </div>
-        <div class="big" id="pText"></div>
-        <div class="ipa" id="pIpa"></div>
-        <div class="hint" id="pHint"></div>
-        <button class="btn ghost small listen" id="listenBtn"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z"/></svg>Ouvir pronúncia</button>
-      </div>
-      <div class="recorder">
-        <canvas id="wave" width="760" height="112" aria-hidden="true"></canvas>
-        <button class="rec" id="recBtn" aria-label="Gravar"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0h-2a5 5 0 0 1-10 0zM11 18h2v3h-2z"/></svg></button>
-        <div class="rec-note" id="recNote">Toque para gravar</div>
-        <div class="live" id="liveText" aria-live="polite"></div>
-      </div>
-      <div id="result" class="screen"></div>
-    </section>
+  <section class="lp-section">
+    <h2>Do som à entrevista</h2>
+    <div class="lp-levels">
+      <div><span class="lp-n">1</span><b>Sounds &amp; Words</b><p>Os sons que o brasileiro mais troca, nas palavras da área.</p></div>
+      <div><span class="lp-n">2</span><b>Sentences</b><p>Frases reais de reunião e de documentação, no ritmo certo.</p></div>
+      <div><span class="lp-n">3</span><b>Explain it</b><p>Explique em voz alta o que é CDC, SCD tipo 2, data lake.</p></div>
+      <div><span class="lp-n">4</span><b>Your projects</b><p>Perguntas de entrevista no formato STAR, com nota por parte.</p></div>
+    </div>
+  </section>
 
-    <!-- INTERVIEW -->
-    <section class="screen" id="s-interview" hidden>
-      <div class="block">
-        <span class="label">Nível 5 · Interview</span>
-        <h3>Simulador de entrevista</h3>
-        <p class="muted">O entrevistador por voz chega na Fase 5. Ele precisa da chave do LLM para fazer as perguntas de acompanhamento e dar nota por critério.</p>
-        <p class="muted">Enquanto isso, treine as respostas no nível 4 · Your projects. Elas são as mesmas perguntas que o entrevistador vai fazer.</p>
-        <button class="btn" id="goStar">Treinar no nível 4</button>
-      </div>
-    </section>
+  <section class="lp-section">
+    <h2>Treine para a vaga que você quer</h2>
+    <p class="muted">No cadastro você escolhe a sua trilha. Ela define as perguntas de entrevista que aparecem primeiro, e dá para trocar quando quiser.</p>
+    <div class="lp-tracks">
+      <div><b>Júnior</b><p>Projetos de estudo, como você aprende, o primeiro erro que te ensinou algo.</p></div>
+      <div><b>Pleno</b><p>Qualidade de dados, mudança de schema na origem, requisito pouco claro.</p></div>
+      <div><b>Sênior</b><p>Decisões de arquitetura, trade-offs, custo da plataforma, mentoria.</p></div>
+      <div><b>Especialista</b><p>Direção técnica para vários times, comprar ou construir, convencer a liderança.</p></div>
+    </div>
+  </section>
 
-    <!-- PROGRESS -->
-    <section class="screen" id="s-progress" hidden>
-      <div class="block">
-        <div class="row"><span class="label">Acerto médio por dia · níveis 1 e 2 · últimos 21 dias</span></div>
-        <div id="chartBox"></div>
-      </div>
-      <div class="block">
-        <div class="row"><span class="label">Palavras que você mais erra</span><span class="label">vezes</span></div>
-        <div class="errs" id="errs"></div>
-      </div>
-      <div class="block">
-        <div class="row"><span class="label">Por nível</span></div>
-        <div class="scroll"><table class="table">
-          <thead><tr><th>Nível</th><th>Tentativas</th><th>Média</th></tr></thead>
-          <tbody id="levelTable"></tbody>
-        </table></div>
-      </div>
-    </section>
-  </main>
+  <section class="lp-section lp-price">
+    <div>
+      <h2>Um plano, sem pegadinha</h2>
+      <p class="muted">Comece com 7 dias grátis, sem cartão. Se gostar, continue por R$ 29,90 por mês e cancele quando quiser.</p>
+    </div>
+    <ul>
+      <li>300 minutos de pronúncia avaliada por mês (120 no teste)</li>
+      <li>Até 40 correções com IA por dia</li>
+      <li>Caderno de erros e treino pelos sons mais fracos</li>
+      <li>Sua gravação não fica guardada</li>
+    </ul>
+    <a class="btn" href="app/">Criar conta grátis</a>
+  </section>
 
-  <nav role="tablist" aria-label="Seções" id="tabs" hidden>
-    <button role="tab" data-tab="home" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>Início</button>
-    <button role="tab" data-tab="practice" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h0"/></svg>Treinar</button>
-    <button role="tab" data-tab="interview" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H9l-5 4z"/></svg>Entrevista</button>
-    <button role="tab" data-tab="progress" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19h16M6 15l4-4 3 3 5-6"/></svg>Evolução</button>
-  </nav>
-  <div class="toast" id="toast" role="status" hidden></div>
-</div>
-<script src="app.js"></script>
+  <section class="lp-section">
+    <h2>Perguntas frequentes</h2>
+    <details><summary>Preciso instalar alguma coisa?</summary><p>Não. Funciona no navegador, com o microfone liberado. No celular, use o Chrome; dá para adicionar à tela inicial como um app.</p></details>
+    <details><summary>Que nível de inglês eu preciso ter?</summary><p>Básico já serve. O nível 1 começa por palavras soltas e o app só libera o próximo nível quando você acerta 5 tentativas seguidas com nota 80 ou mais.</p></details>
+    <details><summary>O que acontece quando o teste acaba?</summary><p>O treino pausa e o seu histórico continua salvo. Nada é cobrado automaticamente.</p></details>
+    <details><summary>Quem fez o MeuInglês?</summary><p>Wellington Gois, engenheiro de dados e professor no Rio de Janeiro. O código está aberto no <a href="https://github.com/wellgois/meuingles-app" rel="noopener">GitHub</a>.</p></details>
+  </section>
+</main>
+
+<footer class="lp-foot">
+  <span>MeuInglês · Rio de Janeiro</span>
+  <span><a href="termos.html">Termos</a> · <a href="privacidade.html">Privacidade</a> · <a href="https://github.com/wellgois/meuingles-app" rel="noopener">GitHub</a></span>
+</footer>
+<script>
+  try {
+    if (localStorage.getItem("meuingles.session")) {
+      document.getElementById("topLink").textContent = "Abrir o app";
+      document.getElementById("topLink").href = "app/";
+      document.getElementById("heroCta").textContent = "Continuar treinando";
+    }
+  } catch (e) {}
+</script>
 </body>
 </html>

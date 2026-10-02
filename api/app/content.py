@@ -98,12 +98,43 @@ STAR_WORDS = {
     "result": ["result", "reduced", "improved", "saved", "percent", "faster", "now", "records", "hours"],
 }
 
+# Trilhas por vaga desejada: perguntas STAR extras no nível 4, antes das comuns.
+TRACKS = {"junior": "Júnior", "pleno": "Pleno", "senior": "Sênior", "especialista": "Especialista"}
+STAR_TRACKS = {
+    "junior": [
+        ("jr1", "Tell me about a project you built while learning data engineering."),
+        ("jr2", "How do you learn a new tool quickly?"),
+        ("jr3", "Tell me about a mistake you made and what you learned from it."),
+    ],
+    "pleno": [
+        ("pl1", "Tell me about a time you improved data quality in a pipeline."),
+        ("pl2", "Tell me about a time you delivered with unclear requirements."),
+        ("pl3", "How did you handle a schema change in a source system?"),
+    ],
+    "senior": [
+        ("sr1", "Tell me about an architecture decision you made and its trade-offs."),
+        ("sr2", "Tell me about a time you mentored another engineer."),
+        ("sr3", "How did you reduce the cost of a data platform?"),
+    ],
+    "especialista": [
+        ("sp1", "Tell me about a time you set the technical direction for several teams."),
+        ("sp2", "How do you decide between building and buying a data tool?"),
+        ("sp3", "Tell me about a time you convinced leadership to invest in platform work."),
+    ],
+}
+TRACK_HINTS = {
+    "junior": " Mostre como você aprende e o que entregou.",
+    "pleno": " Mostre o problema técnico e o impacto com um número.",
+    "senior": " Mostre o trade-off que você escolheu e o impacto no negócio.",
+    "especialista": " Mostre a decisão, quem você convenceu e o efeito em vários times.",
+}
+
 LEVEL_NAMES = {1: "Sounds & Words", 2: "Sentences", 3: "Explain it", 4: "Your projects", 5: "Interview"}
 
 WORD_INDEX = {w[1].lower(): {"ipa": w[2], "tip": w[3]} for w in WORDS}
 
 
-def items_for_level(level: int):
+def items_for_level(level: int, track: str | None = None):
     if level == 1:
         return [{"id": "w:" + i, "text": t, "ipa": ipa, "hint": tip, "kind": "word"} for i, t, ipa, tip in WORDS]
     if level == 2:
@@ -112,8 +143,10 @@ def items_for_level(level: int):
         return [{"id": i, "text": t, "kind": "explain", "keywords": k,
                  "hint": "Fale por 45 a 60 segundos. Tente usar: " + ", ".join(k) + "."} for i, t, k in EXPLAIN]
     if level == 4:
-        return [{"id": i, "text": t, "kind": "star",
-                 "hint": "Responda em 90 a 120 segundos: Situação, Tarefa, Ação e Resultado com um número."} for i, t in STAR]
+        hint = "Responda em 90 a 120 segundos: Situação, Tarefa, Ação e Resultado com um número."
+        extra = [{"id": i, "text": t, "kind": "star", "track": track, "hint": hint + TRACK_HINTS[track]}
+                 for i, t in STAR_TRACKS.get(track, [])]
+        return extra + [{"id": i, "text": t, "kind": "star", "hint": hint} for i, t in STAR]
     return []
 
 
@@ -122,6 +155,10 @@ def find_item(item_id: str):
         for it in items_for_level(lv):
             if it["id"] == item_id:
                 return lv, it
+    for tr in STAR_TRACKS:
+        for it in items_for_level(4, tr):
+            if it["id"] == item_id:
+                return 4, it
     if item_id.startswith("t:") and 3 <= len(item_id) <= 202:
         return 2, {"id": item_id, "text": item_id[2:], "kind": "sentence", "hint": "Frase sugerida pela IA a partir da sua última resposta."}
     if item_id.startswith("r:"):

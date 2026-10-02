@@ -76,6 +76,7 @@
     $("#authTabs").hidden = mode === "forgot" || mode === "reset";
     $("#fName").hidden = mode !== "signup";
     $("#fTerms").hidden = mode !== "signup";
+    $("#fTrack").hidden = mode !== "signup";
     $("#fEmail").hidden = mode === "reset";
     $("#fPass").hidden = mode === "forgot";
     $("#passLabel").textContent = mode === "login" ? "Senha" : mode === "reset" ? "Nova senha (mínimo 8 caracteres)" : "Senha (mínimo 8 caracteres)";
@@ -108,8 +109,10 @@
     const fail = (m) => { err.textContent = m; err.hidden = false; };
     if (authMode !== "reset" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail("Digite um e-mail válido.");
     if (authMode === "signup" && !name) return fail("Digite seu nome.");
+    const track = $("#trackInput").value;
     if ((authMode === "signup" || authMode === "reset") && password.length < 8) return fail("A senha precisa ter pelo menos 8 caracteres.");
     if (authMode === "login" && !password) return fail("Digite sua senha.");
+    if (authMode === "signup" && !track) return fail("Escolha a vaga que você busca.");
     if (authMode === "signup" && !$("#termsInput").checked) return fail("Para criar a conta, aceite os termos de uso e a política de privacidade.");
     $("#authSubmit").disabled = true;
     try {
@@ -119,7 +122,7 @@
         return;
       }
       const path = { signup: "auth/signup", login: "auth/login", reset: "auth/reset" }[authMode];
-      const body = authMode === "signup" ? { name, email, password, accept_terms: true }
+      const body = authMode === "signup" ? { name, email, password, accept_terms: true, track }
         : authMode === "reset" ? { token: resetToken, password } : { email, password };
       const r = await api(path, { method: "POST", body: JSON.stringify(body) });
       state.auth = { token: r.token }; saveAuth(state.auth);
@@ -135,6 +138,7 @@
   function renderAccount(a) {
     state.account = a;
     $("#accEmail").textContent = a.email || "";
+    $("#trackSel").value = a.track || "";
     $("#delWrap").hidden = a.plan === "owner";
     let h = "";
     if (a.plan !== "owner" && !a.email_verified) {
@@ -158,6 +162,15 @@
     });
     if (a.is_admin) loadAdmin(); else $("#adminBox").innerHTML = "";
   }
+  $("#trackSel").addEventListener("change", async (e) => {
+    try {
+      await api("me/track", { method: "POST", body: JSON.stringify({ track: e.target.value }) });
+      if (state.account) state.account.track = e.target.value;
+      delete state.items[4]; delete state.index[4];
+      if (state.level === 4) selectLevel(4, true);
+      toast("Trilha atualizada. As perguntas do nível 4 já mudaram.");
+    } catch (ex) { if (ex.message !== "401") toast(ex.message); }
+  });
   async function loadAdmin() {
     try {
       const s = await api("admin/stats");
@@ -665,7 +678,7 @@
     show("home");
   }
   const params = new URLSearchParams(location.search);
-  if (params.has("verified") || params.has("reset")) history.replaceState(null, "", location.pathname);
+  if (params.has("verified") || params.has("reset") || params.has("m")) history.replaceState(null, "", location.pathname);
   try { localStorage.removeItem("meuingles.auth"); } catch (e) {}
   state.auth = loadAuth();
   if (params.get("reset")) {
@@ -676,7 +689,7 @@
     if (params.get("verified") === "0") toast("Esse link de confirmação venceu. Peça um novo no aviso da tela inicial.");
   } else {
     show("login");
-    setAuthMode(params.has("verified") ? "login" : "signup",
+    setAuthMode(params.has("verified") || params.get("m") === "login" ? "login" : "signup",
       params.get("verified") === "1" ? "E-mail confirmado! Entre para começar." : params.get("verified") === "0" ? "Link vencido. Entre e peça um novo." : "");
   }
 })();

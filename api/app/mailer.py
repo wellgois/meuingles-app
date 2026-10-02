@@ -14,7 +14,7 @@ def configured() -> bool:
 
 
 def base_url() -> str:
-    return (os.environ.get("APP_BASE_URL") or "https://wellgois.com/meuingles/").rstrip("/") + "/"
+    return (os.environ.get("APP_BASE_URL") or "https://meuingles.wellgois.com/").rstrip("/") + "/"
 
 
 def send(to: str, subject: str, paragraphs: list[str], button: tuple[str, str] | None = None) -> bool:

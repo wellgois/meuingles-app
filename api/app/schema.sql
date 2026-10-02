@@ -93,3 +93,6 @@ CREATE TABLE IF NOT EXISTS email_tokens (
     expires_at  timestamptz NOT NULL,
     used_at     timestamptz
 );
+
+-- Fase 2.1: trilha pela vaga desejada (júnior, pleno, sênior, especialista).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS target_level text;

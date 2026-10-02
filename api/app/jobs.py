@@ -10,7 +10,7 @@ log = logging.getLogger("meuingles.jobs")
 
 def send_trial_reminders(db) -> int:
     sent = 0
-    base = mailer.base_url()
+    base = mailer.base_url() + "app/"
     with db() as conn:
         soon = conn.execute(
             """SELECT id, name, email FROM users WHERE plan = 'trial' AND email_verified AND email IS NOT NULL

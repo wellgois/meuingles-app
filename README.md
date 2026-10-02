@@ -4,7 +4,7 @@ A speaking coach for technical English in data engineering. You talk, the app sc
 
 Live at `meuingles.wellgois.com`.
 
-## Current status: phase 2 (open sign-up, 7-day free trial)
+## Current status: phase 2.1 (landing page, career tracks)
 
 | Part | Status |
 | --- | --- |
@@ -18,6 +18,8 @@ Live at `meuingles.wellgois.com`.
 | Accounts | E-mail and password (scrypt hashes), e-mail confirmation and password reset through Brevo SMTP, 30-day sessions |
 | Free trial | 7 days, 120 min of Azure-scored audio, 40 AI corrections per day; reminder e-mails 2 days before and at the end |
 | Privacy | Audio is never stored; users can delete their account and all their data from the app (LGPD) |
+| Career tracks | Junior, mid-level, senior and staff tracks choose which STAR interview questions come first in level 4 |
+| Site | Landing page at `/` with Open Graph preview, the app at `/app/`; pages are revalidated on every visit (`Cache-Control: no-cache`) |
 | Next | Mercado Pago subscription (R$ 29,90/month), interview simulator, data pipeline (ADF / Airflow, Databricks, dbt) |
 
 ## Architecture
