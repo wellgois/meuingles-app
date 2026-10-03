@@ -49,3 +49,6 @@ curl http://127.0.0.1:$APP_PORT/api/health
 ```
 
 API docs: `/api/docs`.
+
+## Data platform
+The pipeline downstream of this database (pseudonymized extract, ADLS Gen2 landing, Delta bronze/silver, dbt gold, public panel) lives in [`data-platform/`](data-platform/README.md).
