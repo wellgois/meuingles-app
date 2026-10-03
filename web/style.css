@@ -270,3 +270,22 @@ button.w{border:0;cursor:pointer;font:inherit;font-weight:700;font-size:14.5px}
 .tbl-wrap{overflow-x:auto}
 .tbl-wrap .table th,.tbl-wrap .table td{padding-right:12px;white-space:nowrap}
 .mini-sel{padding:6px 8px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font:inherit;font-size:13px}
+
+/* simulador de entrevista */
+.iv-q{font-size:18px;line-height:1.45;margin:4px 0;font-family:var(--f-display)}
+.iv-tag{font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.iv-ta{width:100%;min-height:140px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface);color:var(--ink);font:inherit;resize:vertical}
+.iv-progress{font-size:14px;margin:0}
+.iv-list{display:grid;gap:6px}
+.iv-hist{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit;text-align:left}
+.iv-score{display:grid;gap:2px}
+.iv-score strong{font-family:var(--f-display);font-size:44px;line-height:1}
+.iv-score span{color:var(--muted);font-size:13.5px}
+.iv-bar{display:grid;gap:4px}
+.iv-bar .row{font-size:14px}
+.iv-track{height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.iv-track i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.iv-ul{margin:0;padding-left:20px;display:grid;gap:4px}
+.iv-natural{border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin:0}
+.iv-foot .muted{font-size:13.5px}
+.btn.rec-on{background:var(--bad);color:#fff}

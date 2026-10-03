@@ -55,6 +55,7 @@
     if (name === "progress" && state.progressDirty) loadProgress();
     if (name === "billing" && state.account) renderBilling(state.account);
     if (name === "practice") { renderItem(); drawWave(0, false); }
+    if (name === "interview") loadInterview(); else ivLeave();
     window.scrollTo(0, 0);
   }
   $$("#tabs [data-tab]").forEach((t) => t.addEventListener("click", () => show(t.dataset.tab)));
@@ -679,6 +680,219 @@
     }));
   }
   $("#soundChip").addEventListener("click", openSounds);
+
+  /* ---------- simulador de entrevista (nível 5) ---------- */
+  var iv = { st: null, sid: null, busy: false, visible: false, sr: null, recOn: false, userStopped: false, fatal: null,
+    finals: [], session: "", base: "", started: 0, timer: null, dur: 0, seq: null, draft: "", autoSpeak: false };
+  const IV_KIND = { behavioral: "Comportamental (STAR)", technical: "Técnica", design: "System design" };
+  const IV_CRIT = [["star", "Estrutura STAR"], ["technical", "Correção técnica"], ["vocabulary", "Vocabulário"], ["grammar", "Gramática"], ["clarity", "Clareza"]];
+  const ivBox = (html) => { $("#ivBox").innerHTML = html; };
+  const ivPct = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+
+  function ivLeave() {
+    if (!iv || !iv.visible) return;
+    iv.visible = false;
+    const ta = $("#ivText");
+    if (ta) iv.draft = ta.value;
+    if (iv.recOn) ivStopRec();
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+  }
+
+  async function loadInterview() {
+    iv.visible = true;
+    if (iv.busy) return;
+    ivBox('<p class="muted">Carregando…</p>');
+    try { iv.st = await api("interview/state"); renderInterview(); }
+    catch (e) { if (e.message !== "401") ivBox('<div class="notice">' + esc(e.message) + "</div>"); }
+  }
+
+  function renderInterview() {
+    const s = iv.st;
+    if (!s) return;
+    if (s.active) { if (s.active.ready) renderIvReady(); else renderIvQuestion(); }
+    else renderIvIdle();
+  }
+
+  function renderIvIdle() {
+    const s = iv.st;
+    const unlimited = !!(state.account && state.account.plan === "owner");
+    const left = Math.max(0, s.per_day - s.used_today);
+    const blocked = !s.configured || (!unlimited && left === 0);
+    const hist = s.history.map((h) => '<button type="button" class="iv-hist" data-id="' + esc(h.id) + '"><span>' +
+      new Date(h.created_at).toLocaleDateString("pt-BR") + "</span><b>nota " + Math.round(h.overall) + "</b></button>").join("");
+    ivBox('<span class="label">Nível 5 · Interview</span><h3>Simulador de entrevista</h3>' +
+      '<p class="muted">Três perguntas (comportamental no formato STAR, técnica e system design), cada uma com uma pergunta de acompanhamento. No fim, um relatório com nota por critério. Leva de 10 a 15 minutos.</p>' +
+      '<p class="iv-progress"><strong>' + s.passes + " de " + s.passes_needed + "</strong> simulações aprovadas (nota geral " + s.pass_score + " ou mais)" + (s.level_complete ? " · nível 5 concluído" : "") + "</p>" +
+      (hist ? '<span class="label">Últimas simulações</span><div class="iv-list">' + hist + "</div>" : "") +
+      (!s.configured ? '<div class="notice">O simulador precisa da chave do LLM, que ainda não está configurada.</div>'
+        : (!unlimited && left === 0) ? '<div class="notice">Você já fez ' + s.per_day + " simulações nas últimas 24 horas. Volte amanhã.</div>" : "") +
+      '<button type="button" class="btn" id="ivStart"' + (blocked ? " disabled" : "") + ">Começar simulação</button>");
+    $("#ivStart").addEventListener("click", ivStart);
+    $$("#ivBox .iv-hist").forEach((b) => b.addEventListener("click", () => ivOpenReport(b.dataset.id)));
+  }
+
+  async function ivOpenReport(id) {
+    try { renderIvReport(await api("interview/" + encodeURIComponent(id) + "/report"), false); }
+    catch (e) { if (e.message !== "401") toast(e.message); }
+  }
+
+  async function ivStart() {
+    if (iv.busy) return;
+    iv.busy = true;
+    $("#ivStart").disabled = true;
+    try { iv.st = await api("interview/start", { method: "POST" }); iv.autoSpeak = true; }
+    catch (e) { if (e.message !== "401") toast(e.message); }
+    finally { iv.busy = false; }
+    renderInterview();
+  }
+
+  function renderIvQuestion() {
+    const p = iv.st.active.prompt;
+    if (iv.seq !== p.seq || iv.sid !== iv.st.active.session_id) { iv.seq = p.seq; iv.sid = iv.st.active.session_id; iv.dur = 0; iv.draft = ""; }
+    const tag = p.kind === "followup" ? "Pergunta de acompanhamento" : (IV_KIND[p.question_kind] || "Pergunta");
+    ivBox('<div class="row"><span class="label">Pergunta ' + (p.q_index + 1) + " de " + p.total + '</span><span class="iv-tag">' + esc(tag) + "</span></div>" +
+      '<p class="iv-q" lang="en">' + esc(p.prompt) + "</p>" +
+      '<div class="row-tight"><button type="button" class="btn ghost small" id="ivListen">Ouvir a pergunta</button></div>' +
+      '<textarea class="iv-ta" id="ivText" lang="en" spellcheck="false" maxlength="4000" placeholder="Grave a resposta com o microfone ou digite aqui. Você pode editar antes de enviar."></textarea>' +
+      '<div class="row"><button type="button" class="btn" id="ivRec">Gravar resposta</button><button type="button" class="btn ghost" id="ivSend">Enviar resposta</button></div>' +
+      '<p class="muted" id="ivNote">' + (SR ? "Toque em gravar, responda em inglês e toque de novo para parar." : "Este navegador não reconhece fala: digite a resposta ou use o Google Chrome.") + "</p>" +
+      '<button type="button" class="linkbtn" id="ivAbandon">Abandonar simulação</button>');
+    $("#ivText").value = iv.draft || "";
+    $("#ivListen").addEventListener("click", () => say(p.prompt));
+    $("#ivRec").addEventListener("click", () => (iv.recOn ? ivStopRec() : ivStartRec()));
+    $("#ivSend").addEventListener("click", ivSend);
+    $("#ivAbandon").addEventListener("click", ivAbandon);
+    if (iv.autoSpeak) { iv.autoSpeak = false; if ("speechSynthesis" in window) say(p.prompt); }
+  }
+
+  function ivStartRec() {
+    if (!SR) { toast("Este navegador não reconhece fala. Digite a resposta."); return; }
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    Object.assign(iv, { recOn: true, userStopped: false, fatal: null, finals: [], session: "", base: $("#ivText").value.trim(), started: performance.now() });
+    const sr = new SR();
+    sr.lang = "en-US"; sr.interimResults = true; sr.continuous = false; sr.maxAlternatives = 1;
+    iv.sr = sr;
+    sr.onresult = (e) => {
+      let fin = "", interim = "";
+      for (let i = 0; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) fin += r[0].transcript + " "; else interim += r[0].transcript;
+      }
+      iv.session = fin.trim();
+      const ta = $("#ivText");
+      if (ta) ta.value = [iv.base, iv.finals.join(" "), iv.session, interim].filter(Boolean).join(" ").trim();
+    };
+    sr.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") iv.fatal = "Permita o uso do microfone para este site nas configurações do navegador.";
+      else if (e.error === "network") iv.fatal = "O reconhecimento de voz precisa de internet. Verifique a conexão.";
+      else if (e.error === "audio-capture") iv.fatal = "Nenhum microfone encontrado.";
+    };
+    sr.onend = () => {
+      if (iv.session) { iv.finals.push(iv.session); iv.session = ""; }
+      if (iv.recOn && !iv.userStopped && !iv.fatal && performance.now() - iv.started < 180000) { try { sr.start(); return; } catch (e) {} }
+      ivRecDone();
+    };
+    try { sr.start(); } catch (e) { iv.recOn = false; toast("Não foi possível iniciar o microfone."); return; }
+    const b = $("#ivRec"), n = $("#ivNote");
+    if (b) { b.textContent = "Parar gravação"; b.classList.add("rec-on"); }
+    if (n) n.textContent = "Gravando… responda em inglês e toque em parar quando terminar.";
+    clearTimeout(iv.timer);
+    iv.timer = setTimeout(ivStopRec, 180000);
+  }
+
+  function ivStopRec() {
+    iv.userStopped = true;
+    clearTimeout(iv.timer);
+    try { iv.sr && iv.sr.stop(); } catch (e) { ivRecDone(); }
+  }
+
+  function ivRecDone() {
+    if (!iv.recOn) return;
+    iv.recOn = false;
+    clearTimeout(iv.timer);
+    iv.dur += Math.max(0, Math.round(performance.now() - iv.started));
+    const ta = $("#ivText"), b = $("#ivRec"), n = $("#ivNote");
+    const spoken = iv.finals.join(" ").trim();
+    if (ta && spoken) ta.value = [iv.base, spoken].filter(Boolean).join(" ").trim();
+    if (b) { b.textContent = "Gravar resposta"; b.classList.remove("rec-on"); }
+    if (n) n.textContent = iv.fatal || "Revise o texto, se quiser, e envie a resposta.";
+    if (iv.fatal) toast(iv.fatal);
+  }
+
+  async function ivSend() {
+    if (iv.busy) return;
+    if (iv.recOn) { toast("Toque em parar a gravação antes de enviar."); return; }
+    const text = $("#ivText").value.trim();
+    if (text.length < 3) { toast("Grave ou digite a resposta antes de enviar."); return; }
+    iv.busy = true;
+    iv.draft = text;
+    const sid = iv.st.active.session_id;
+    ivBox('<span class="label">Pensando…</span><p class="muted">O entrevistador está lendo a sua resposta.</p>');
+    try {
+      await api("interview/" + sid + "/answer", { method: "POST", body: JSON.stringify({ answer: text, duration_ms: iv.dur || null }) });
+      iv.draft = ""; iv.dur = 0; iv.autoSpeak = true;
+    } catch (e) { if (e.message !== "401") toast(e.message); iv.autoSpeak = false; }
+    try { iv.st = await api("interview/state"); } catch (e) {}
+    iv.busy = false;
+    renderInterview();
+  }
+
+  function renderIvReady() {
+    ivBox('<span class="label">Entrevista concluída</span><h3>Todas as perguntas respondidas</h3>' +
+      '<p class="muted">Gere o relatório com a nota por critério. Pode levar alguns segundos.</p>' +
+      '<button type="button" class="btn" id="ivFinish">Gerar relatório</button>' +
+      '<button type="button" class="linkbtn" id="ivAbandon">Abandonar simulação</button>');
+    $("#ivFinish").addEventListener("click", ivFinish);
+    $("#ivAbandon").addEventListener("click", ivAbandon);
+  }
+
+  async function ivFinish() {
+    if (iv.busy) return;
+    iv.busy = true;
+    const sid = iv.st.active.session_id;
+    ivBox('<span class="label">Gerando o relatório…</span><p class="muted">Isso leva alguns segundos.</p>');
+    let rep = null;
+    try { rep = await api("interview/" + sid + "/finish", { method: "POST" }); }
+    catch (e) { if (e.message !== "401") toast(e.message); }
+    try { iv.st = await api("interview/state"); } catch (e) {}
+    iv.busy = false;
+    if (rep) renderIvReport(rep, true); else renderInterview();
+  }
+
+  async function ivAbandon() {
+    if (!confirm("Abandonar esta simulação? As respostas já enviadas serão descartadas.")) return;
+    try { await api("interview/" + iv.st.active.session_id + "/abandon", { method: "POST" }); }
+    catch (e) { if (e.message !== "401") toast(e.message); }
+    try { iv.st = await api("interview/state"); } catch (e) {}
+    iv.draft = "";
+    renderInterview();
+  }
+
+  function renderIvReport(rep, fresh) {
+    const s = iv.st || {};
+    const bars = IV_CRIT.map((c) => {
+      const v = ivPct((rep.criteria || {})[c[0]]);
+      return '<div class="iv-bar"><div class="row"><span>' + c[1] + "</span><b>" + v + '</b></div><div class="iv-track"><i style="width:' + v + '%"></i></div></div>';
+    }).join("");
+    const list = (arr) => (arr && arr.length ? '<ul class="iv-ul">' + arr.map((t) => "<li>" + esc(t) + "</li>").join("") + "</ul>" : "");
+    const weak = (rep.questions || [])[rep.weakest_question];
+    let h = '<span class="label">Relatório da simulação</span>' +
+      '<div class="iv-score"><strong>' + ivPct(rep.overall) + "</strong><span>nota geral · " + (rep.passed ? "aprovado" : "abaixo de " + (s.pass_score || 75)) + "</span></div>" + bars;
+    if (rep.strengths && rep.strengths.length) h += '<span class="label">Pontos fortes</span>' + list(rep.strengths);
+    if (rep.improvements && rep.improvements.length) h += '<span class="label">O que melhorar</span>' + list(rep.improvements);
+    if (rep.natural_version) {
+      h += '<span class="label">Uma versão mais natural da sua resposta mais fraca</span>' +
+        (weak ? '<p class="muted" lang="en">' + esc(weak.text) + "</p>" : "") +
+        '<p class="iv-natural" lang="en">' + esc(rep.natural_version) + "</p>" +
+        '<div class="row-tight"><button type="button" class="btn ghost small" id="ivSayNat">Ouvir</button></div>';
+    }
+    h += '<p class="iv-progress"><strong>' + (s.passes || 0) + " de " + (s.passes_needed || 2) + "</strong> simulações aprovadas" + (s.level_complete ? " · nível 5 concluído" : "") + "</p>" +
+      '<button type="button" class="btn" id="ivBack">' + (fresh ? "Fazer outra simulação" : "Voltar") + "</button>";
+    ivBox(h);
+    const nat = $("#ivSayNat");
+    if (nat) nat.addEventListener("click", () => say(rep.natural_version));
+    $("#ivBack").addEventListener("click", () => renderInterview());
+  }
 
   /* ---------- voz nativa (TTS do navegador) ---------- */
   let voice = null;
