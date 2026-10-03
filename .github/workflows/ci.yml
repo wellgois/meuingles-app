@@ -59,6 +59,24 @@ jobs:
       - name: Build da imagem do extrator
         run: docker build -t meuingles-extract data-platform
 
+  lake:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: data-platform/requirements-lake.txt
+      - run: pip install -r data-platform/requirements.txt -r data-platform/requirements-lake.txt pytest
+      - name: Testes do lake (Spark e Delta em modo local)
+        working-directory: data-platform
+        run: pytest -q -p no:cacheprovider tests/lake
+
   deploy:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY == 'true'
