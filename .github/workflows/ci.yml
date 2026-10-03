@@ -91,6 +91,21 @@ jobs:
         working-directory: data-platform
         run: pytest -q -p no:cacheprovider tests/gold
 
+  airflow:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar Airflow com as restrições oficiais de versões
+        run: |
+          pip install "apache-airflow==3.3.2" apache-airflow-providers-ssh pytest \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt"
+      - name: Testes da DAG e do script de comandos permitidos
+        working-directory: data-platform
+        run: pytest -q -p no:cacheprovider tests/orchestration
+
   deploy:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY == 'true'
