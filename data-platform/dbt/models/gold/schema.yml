@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: gold_user_daily_progress
+    description: "Uma linha por usuário e dia: tentativas, nota média, minutos praticados e nível. Inclui a conta do dono (is_owner), para o painel da evolução pessoal."
+    columns:
+      - name: user_key
+        data_tests: [not_null]
+      - name: attempt_date
+        data_tests: [not_null]
+      - name: attempts
+        data_tests: [not_null]
+  - name: gold_phoneme_difficulty
+    description: "Fonemas mais difíceis: nota média e parcela das tentativas abaixo de 80."
+    columns:
+      - name: phoneme
+        data_tests: [unique, not_null]
+  - name: gold_level_progression
+    description: "Dias entre a primeira tentativa em um nível e a primeira no nível seguinte (aproxima o tempo para subir de nível)."
+    columns:
+      - name: user_key
+        data_tests: [not_null]
+      - name: days_to_advance
+        data_tests: [not_null]
+  - name: gold_funnel_by_source
+    description: "Funil por origem e campanha: cadastro, e-mail confirmado, primeiro treino, engajado e assinante. Exclui a conta do dono."
+    columns:
+      - name: signup_source
+        data_tests: [not_null]
+      - name: signups
+        data_tests: [not_null]
+  - name: gold_weekly_retention
+    description: "Retenção por semana de cadastro: usuários com ao menos um treino na semana N depois do cadastro."
+    columns:
+      - name: cohort_week
+        data_tests: [not_null]
+      - name: week_offset
+        data_tests: [not_null]
+  - name: gold_daily_cost
+    description: "Custo estimado por dia (áudio avaliado no Azure e correções com IA); preços em dbt_project.yml."
+    columns:
+      - name: attempt_date
+        data_tests: [unique, not_null]

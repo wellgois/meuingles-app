@@ -7,3 +7,8 @@ backups/
 spark-warehouse/
 metastore_db/
 derby.log
+data-platform/dbt/target/
+data-platform/dbt/logs/
+data-platform/dbt/.user.yml
+*.duckdb
+*.duckdb.wal

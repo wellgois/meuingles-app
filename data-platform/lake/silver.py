@@ -44,7 +44,7 @@ def build_frames(spark, root):
         "attempt_words": get("attempt_words", "dt"),
         "attempt_phonemes": get("attempt_phonemes", "dt"),
         "visits": visits,
-        "users": get("users", "snapshot"),
+        "users": get("users", "snapshot").withColumn("signup_date", _local_date("created_at")),
         "review_items": get("review_items", "snapshot"),
     }
 

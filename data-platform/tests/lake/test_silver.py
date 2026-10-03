@@ -33,6 +33,7 @@ def test_silver_tipado_e_idempotente(spark, landing):
     attempts = table(spark, landing, "attempts")
     assert str(attempts.where(F.col("attempt_id") == 1).collect()[0].attempt_date) == "2026-10-01"
     assert "dt" not in attempts.columns
+    assert str(table(spark, landing, "users").where(F.col("user_key") == UA).collect()[0].signup_date) == "2026-10-01"
 
 
 def test_merge_atualiza_sem_duplicar(spark, landing):

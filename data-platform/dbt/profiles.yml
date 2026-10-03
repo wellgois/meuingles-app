@@ -1,0 +1,16 @@
+meuingles:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'target/meuingles.duckdb') }}"
+      schema: main
+      threads: 1
+    databricks:
+      type: databricks
+      catalog: "{{ env_var('DBT_DATABRICKS_CATALOG', 'main') }}"
+      schema: gold
+      host: "{{ env_var('DBT_DATABRICKS_HOST', '') }}"
+      http_path: "{{ env_var('DBT_DATABRICKS_HTTP_PATH', '') }}"
+      token: "{{ env_var('DBT_DATABRICKS_TOKEN', '') }}"
+      threads: 2

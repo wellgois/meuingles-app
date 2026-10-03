@@ -1,0 +1,23 @@
+name: meuingles
+version: "1.0.0"
+config-version: 2
+profile: meuingles
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  azure_usd_per_hour: 1.32
+  llm_usd_in_per_m: 1.0
+  llm_usd_out_per_m: 5.0
+  llm_default_in_tokens: 800
+  llm_default_out_tokens: 500
+  engaged_attempts: 5
+
+models:
+  meuingles:
+    gold:
+      +schema: gold
+      +materialized: table

@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: silver
+    schema: silver
+    description: "Camada silver do lake (Delta, tipada e deduplicada). Local: carregada em DuckDB. Databricks: tabelas no schema silver."
+    tables:
+      - name: attempts
+      - name: attempt_words
+      - name: attempt_phonemes
+      - name: visits
+      - name: users
+      - name: review_items

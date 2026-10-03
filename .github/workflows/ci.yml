@@ -77,6 +77,20 @@ jobs:
         working-directory: data-platform
         run: pytest -q -p no:cacheprovider tests/lake
 
+  gold:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: data-platform/requirements-gold.txt
+      - run: pip install -r data-platform/requirements.txt -r data-platform/requirements-gold.txt pytest
+      - name: Modelos dbt (gold) e carga do silver em DuckDB
+        working-directory: data-platform
+        run: pytest -q -p no:cacheprovider tests/gold
+
   deploy:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY == 'true'
