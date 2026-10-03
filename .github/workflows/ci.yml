@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
@@ -54,7 +54,7 @@ jobs:
   deploy:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency: deploy-meuingles
     steps:
       - name: Deploy na VPS
