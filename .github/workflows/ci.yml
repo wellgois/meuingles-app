@@ -75,6 +75,8 @@ jobs:
       - run: pip install -r data-platform/requirements.txt -r data-platform/requirements-lake.txt pytest
       - name: Testes do lake (Spark e Delta em modo local)
         working-directory: data-platform
+        env:
+          FAIL_ON_SKIP: "1"
         run: pytest -q -p no:cacheprovider tests/lake
 
   gold:
@@ -89,6 +91,8 @@ jobs:
       - run: pip install -r data-platform/requirements.txt -r data-platform/requirements-gold.txt pytest
       - name: Modelos dbt (gold) e carga do silver em DuckDB
         working-directory: data-platform
+        env:
+          FAIL_ON_SKIP: "1"
         run: pytest -q -p no:cacheprovider tests/gold
 
   airflow:
@@ -104,6 +108,8 @@ jobs:
             --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt"
       - name: Testes da DAG e do script de comandos permitidos
         working-directory: data-platform
+        env:
+          FAIL_ON_SKIP: "1"
         run: pytest -q -p no:cacheprovider tests/orchestration
 
   deploy:
