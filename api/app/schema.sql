@@ -135,11 +135,20 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_content text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_vid text;
 
 -- LGPD: ao excluir a conta, apaga as visitas anônimas ligadas a ela.
+-- Lista de supressão: o pipeline de dados apaga do lake quem excluiu a conta.
+CREATE TABLE IF NOT EXISTS deleted_users (
+    user_id     uuid PRIMARY KEY,
+    signup_vid  text,
+    deleted_at  timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE OR REPLACE FUNCTION delete_user_visits() RETURNS trigger AS $$
 BEGIN
     IF OLD.signup_vid IS NOT NULL THEN
         DELETE FROM visits WHERE vid = OLD.signup_vid;
     END IF;
+    INSERT INTO deleted_users (user_id, signup_vid) VALUES (OLD.id, OLD.signup_vid)
+        ON CONFLICT (user_id) DO NOTHING;
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql;

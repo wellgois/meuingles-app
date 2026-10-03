@@ -32,9 +32,10 @@ jobs:
           cache-dependency-path: |
             api/requirements.txt
             api/requirements-dev.txt
-      - run: pip install -r api/requirements.txt -r api/requirements-dev.txt
+            data-platform/requirements.txt
+      - run: pip install -r api/requirements.txt -r api/requirements-dev.txt -r data-platform/requirements.txt
       - name: Lint (erros reais)
-        run: ruff check --select E9,F63,F7,F82 api
+        run: ruff check --select E9,F63,F7,F82 api data-platform
       - name: JavaScript do front-end
         run: node --check web/app.js && node --check web/t.js
       - name: Schema SQL (duas execuções, precisa ser idempotente)
@@ -48,8 +49,15 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:ci@localhost:5432/meuingles
         run: pytest -q
+      - name: Testes do extrator de dados
+        working-directory: data-platform
+        env:
+          EXTRACT_TEST_DB: postgresql://postgres:ci@localhost:5432/meuingles
+        run: pytest -q
       - name: Build da imagem
         run: docker build -t meuingles-api .
+      - name: Build da imagem do extrator
+        run: docker build -t meuingles-extract data-platform
 
   deploy:
     needs: test

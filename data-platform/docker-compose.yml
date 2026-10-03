@@ -1,0 +1,15 @@
+name: meuingles-data
+services:
+  extract:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://meuingles:${POSTGRES_PASSWORD}@db:5432/meuingles
+      PSEUDO_KEY_FILE: /run/secrets/pseudo_key
+    volumes:
+      - /opt/meuingles-data:/out
+      - /opt/meuingles-data/pseudo.key:/run/secrets/pseudo_key:ro
+    networks: [meuingles]
+networks:
+  meuingles:
+    external: true
+    name: meuingles_default
