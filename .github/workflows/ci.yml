@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: meuingles
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            api/requirements.txt
+            api/requirements-dev.txt
+      - run: pip install -r api/requirements.txt -r api/requirements-dev.txt
+      - name: Lint (erros reais)
+        run: ruff check --select E9,F63,F7,F82 api
+      - name: JavaScript do front-end
+        run: node --check web/app.js && node --check web/t.js
+      - name: Schema SQL (duas execuções, precisa ser idempotente)
+        env:
+          PGPASSWORD: ci
+        run: |
+          psql -h localhost -U postgres -d meuingles -v ON_ERROR_STOP=1 -q -f api/app/schema.sql
+          psql -h localhost -U postgres -d meuingles -v ON_ERROR_STOP=1 -q -f api/app/schema.sql
+      - name: Testes
+        working-directory: api
+        env:
+          DATABASE_URL: postgresql://postgres:ci@localhost:5432/meuingles
+        run: pytest -q
+      - name: Build da imagem
+        run: docker build -t meuingles-api .
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    concurrency: deploy-meuingles
+    steps:
+      - name: Deploy na VPS
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes "$VPS_USER@$VPS_HOST" deploy

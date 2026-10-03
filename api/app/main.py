@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from . import auth, azure_speech, billing, content, jobs, llm, mailer
+from . import auth, azure_speech, billing, content, jobs, leads, llm, mailer, traffic, costs
 from .scoring import SHORT, score_open, score_repeat
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@localhost/meuingles")
@@ -52,6 +52,9 @@ def init_schema():
 
 
 current_user = auth.make_current_user(db)
+leads.register(app, db, current_user)
+traffic.register(app, db, current_user)
+costs.register(app, db, current_user)
 
 
 # ---------- públicos ----------
@@ -73,6 +76,12 @@ class SignUp(BaseModel):
     password: str = Field(min_length=8, max_length=200)
     accept_terms: bool
     track: str | None = None
+    vid: str | None = Field(default=None, max_length=40)
+    utm_source: str = Field(default="", max_length=80)
+    utm_campaign: str = Field(default="", max_length=80)
+    utm_content: str = Field(default="", max_length=80)
+    ref: str = Field(default="", max_length=120)
+    inapp: str = Field(default="", max_length=20)
 
 
 class Login(BaseModel):
@@ -131,6 +140,9 @@ def signup(body: SignUp, request: Request):
                 f"""INSERT INTO users (id, name, email, pass_hash, plan, trial_ends_at, terms_accepted_at, target_level)
                     VALUES (%s, %s, %s, %s, 'trial', now() + interval '{auth.TRIAL_DAYS} days', now(), %s) RETURNING *""",
                 (uid, body.name.strip(), email, auth.hash_password(body.password), track)).fetchone()
+            s_src, s_camp, s_cont, s_vid = traffic.signup_attribution(body)
+            conn.execute("UPDATE users SET signup_source = %s, signup_campaign = %s, signup_content = %s, signup_vid = %s WHERE id = %s",
+                         (s_src, s_camp, s_cont, s_vid, uid))
             tok = open_session(conn, uid)
         sent = send_verify(conn, user)
     return {"token": tok, "email_sent": sent}
@@ -315,6 +327,38 @@ def billing_cancel(user=Depends(current_user)):
     return {"status": pre.get("status")}
 
 
+class PixCheckIn(BaseModel):
+    payment_id: str = Field(max_length=40)
+
+
+@app.post("/api/billing/pix")
+def pix_create(user=Depends(current_user)):
+    auth.rate_limit("pix:" + str(user["id"]), 10, 3600)
+    if not billing.configured():
+        raise HTTPException(503, "O pagamento ainda não está disponível.")
+    if user["plan"] == "owner":
+        raise HTTPException(400, "A conta do dono não precisa de pagamento.")
+    if not user["email_verified"]:
+        raise HTTPException(403, "Confirme seu e-mail antes de pagar.")
+    if auth.access(user)["plan"] == "active" and user.get("mp_status") == "authorized":
+        raise HTTPException(400, "Sua assinatura no cartão já está ativa.")
+    try:
+        return billing.pix_create(user)
+    except Exception as e:  # noqa: BLE001
+        _mp_error(e)
+
+
+@app.post("/api/billing/pix/check")
+def pix_check(body: PixCheckIn, user=Depends(current_user)):
+    auth.rate_limit("pixchk:" + str(user["id"]), 240, 3600)
+    if not billing.configured():
+        return {"status": None}
+    try:
+        return billing.pix_confirm(db, body.payment_id, only_user=str(user["id"]))
+    except Exception as e:  # noqa: BLE001
+        _mp_error(e)
+
+
 @app.post("/api/billing/webhook")
 async def billing_webhook(request: Request):
     """Aviso do Mercado Pago. Só serve de gatilho: o status é sempre lido de novo na API."""
@@ -328,6 +372,9 @@ async def billing_webhook(request: Request):
     if not rid or not billing.configured() or not rid.replace("-", "").isalnum():
         return {"ok": True}
     try:
+        if kind == "payment":
+            await run_in_threadpool(billing.pix_confirm, db, rid)
+            return {"ok": True}
         if "authorized_payment" in kind:
             pay = await run_in_threadpool(billing._call, "GET", "/authorized_payments/" + rid)
             rid = str(pay.get("preapproval_id") or "")

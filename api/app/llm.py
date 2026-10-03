@@ -3,10 +3,12 @@ import json
 import logging
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
 
 log = logging.getLogger("meuingles.llm")
+_tl = threading.local()
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 SYSTEM = """You are an English speaking coach for a Brazilian data engineer preparing for job interviews.
@@ -37,6 +39,7 @@ def _call_anthropic(user_text: str) -> str:
                  "content-type": "application/json"})
     with urllib.request.urlopen(req, timeout=40) as resp:
         data = json.loads(resp.read().decode("utf-8"))
+    _tl.usage = data.get("usage") or {}
     return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
 
 
@@ -70,7 +73,12 @@ def feedback(kind: str, question: str, transcript: str, keywords: list[str] | No
         extra += "\nThis is a behavioral question: also check the STAR structure (Situation, Task, Action, Result with a number)."
     user_text = f"Question: {question}{extra}\n\nLearner's spoken answer (transcribed):\n{transcript[:4000]}"
     try:
-        return _parse(_call_anthropic(user_text))
+        _tl.usage = {}
+        fb = _parse(_call_anthropic(user_text))
+        if fb is not None:
+            u = getattr(_tl, "usage", None) or {}
+            fb["usage"] = {"in": int(u.get("input_tokens", 0) or 0), "out": int(u.get("output_tokens", 0) or 0)}
+        return fb
     except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
         log.warning("LLM indisponível: %s", e)
         return None

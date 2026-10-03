@@ -47,12 +47,13 @@
   }
 
   /* ---------- navegação ---------- */
-  const SCREENS = ["login", "home", "practice", "interview", "progress"];
+  const SCREENS = ["login", "home", "practice", "interview", "progress", "billing"];
   function show(name) {
     SCREENS.forEach((n) => ($("#s-" + n).hidden = n !== name));
     $$("#tabs [data-tab]").forEach((t) => t.setAttribute("aria-selected", t.dataset.tab === name));
     if (name === "home" && state.homeDirty) loadHome();
     if (name === "progress" && state.progressDirty) loadProgress();
+    if (name === "billing" && state.account) renderBilling(state.account);
     if (name === "practice") { renderItem(); drawWave(0, false); }
     window.scrollTo(0, 0);
   }
@@ -122,7 +123,7 @@
         return;
       }
       const path = { signup: "auth/signup", login: "auth/login", reset: "auth/reset" }[authMode];
-      const body = authMode === "signup" ? { name, email, password, accept_terms: true, track }
+      const body = authMode === "signup" ? { name, email, password, accept_terms: true, track, ...(window.miAttr ? window.miAttr() : {}) }
         : authMode === "reset" ? { token: resetToken, password } : { email, password };
       const r = await api(path, { method: "POST", body: JSON.stringify(body) });
       state.auth = { token: r.token }; saveAuth(state.auth);
@@ -157,10 +158,14 @@
       h = '<div class="banner"><b>Teste grátis:</b> ' + (a.days_left === 1 ? "último dia" : "faltam " + a.days_left + " dias") +
         " · " + a.audio_used_min + " de " + a.audio_limit_min + " min de áudio avaliado" +
         (a.billing && a.days_left <= 2 ? "<br>Para continuar depois do teste, assine por " + price + " por mês." + subForm("Assinar com Mercado Pago") : "") +
+        (a.billing && a.days_left > 2 ? '<br><button class="linkbtn" id="goBilling">Assinar agora</button>' : "") +
         pending + "</div>";
     } else if (a.plan === "active" && a.canceled) {
       h = '<div class="banner"><b>Assinatura cancelada.</b> Você tem acesso até ' + new Date(a.paid_until).toLocaleDateString("pt-BR") +
         "." + subForm("Assinar de novo") + "</div>";
+    } else if (a.plan === "active" && a.mp_status !== "authorized") {
+      h = '<div class="banner"><b>Acesso ativo até ' + new Date(a.paid_until).toLocaleDateString("pt-BR") + "</b> · pago por Pix · " +
+        a.audio_used_min + " de " + a.audio_limit_min + " min de áudio avaliado este mês</div>";
     } else if (a.plan === "active") {
       h = '<div class="banner"><b>Plano mensal ativo</b> · ' + a.audio_used_min + " de " + a.audio_limit_min + " min de áudio avaliado este mês</div>";
     } else if (a.plan === "expired") {
@@ -176,6 +181,7 @@
       catch (ex) { e.target.disabled = false; if (ex.message !== "401") toast(ex.message); }
     });
     if ($("#syncBtn")) $("#syncBtn").addEventListener("click", () => syncBilling());
+    if ($("#goBilling")) $("#goBilling").addEventListener("click", () => show("billing"));
     if ($("#resendBtn")) $("#resendBtn").addEventListener("click", async () => {
       try { const r = await api("auth/resend", { method: "POST" }); toast(r.already ? "Seu e-mail já está confirmado." : r.sent ? "E-mail reenviado. Confira também o spam." : "Não consegui enviar agora. Tente mais tarde."); }
       catch (e) { if (e.message !== "401") toast(e.message); }
@@ -184,7 +190,90 @@
       try { await api("me/interest", { method: "POST" }); a.wants_subscription = true; renderAccount(a); toast("Anotado! Avisaremos quando a assinatura abrir."); }
       catch (e) { if (e.message !== "401") toast(e.message); }
     });
+    renderBilling(a);
     if (a.is_admin) loadAdmin(); else $("#adminBox").innerHTML = "";
+  }
+  /* ---------- aba Assinatura ---------- */
+  function renderBilling(a) {
+    const box = $("#billingBox");
+    if (!box) return;
+    const price = "R$ " + Number(a.price || 29.9).toFixed(2).replace(".", ",");
+    const until = a.paid_until ? new Date(a.paid_until).toLocaleDateString("pt-BR") : "";
+    const form = (label) => '<div class="subform"><label class="field"><span class="label">E-mail da sua conta do Mercado Pago</span>' +
+      '<input id="bPayer" type="email" autocomplete="email" maxlength="200" value="' + esc(a.mp_payer_email || a.email || "") + '"></label>' +
+      '<button class="btn" id="bSubBtn">' + label + "</button></div>" + pixBlock;
+    const sync = (a.mp_status === "pending" && a.plan !== "active")
+      ? '<p class="muted">Começou a assinatura e já pagou? <button class="linkbtn" id="bSyncBtn">Verificar pagamento</button></p>' : "";
+    const pixBlock = '<div class="subform pix"><p class="muted">Prefere pagar sem cartão? O Pix libera 30 dias de acesso, sem renovação automática.</p>' +
+      '<button class="btn ghost" id="bPixBtn">Pix · pagar ' + price + '</button><div id="pixBox"></div></div>';
+    let h = '<span class="label">Assinatura</span><h3>Plano mensal · ' + price + "</h3>";
+    if (a.plan === "owner") {
+      h += '<p class="muted">A conta do dono não precisa de assinatura.</p>';
+    } else if (!a.email_verified) {
+      h += '<p class="muted">Confirme seu e-mail para poder assinar.</p>';
+    } else if (!a.billing) {
+      h += '<p class="muted">A assinatura ainda não está disponível.</p>';
+    } else if (a.plan === "active" && !a.canceled && a.mp_status !== "authorized") {
+      h += "<p><b>Acesso ativo" + (until ? " até " + until : "") + ".</b></p>" +
+        '<p class="muted">Pago por Pix, sem renovação automática. Para continuar depois dessa data, pague outro Pix (os dias se somam) ou assine no cartão: a primeira cobrança só acontece em ' + until + '.</p>' + form("Assinar no cartão");
+    } else if (a.plan === "active" && !a.canceled) {
+      h += '<p><b>Assinatura ativa.</b>' + (until ? " Acesso garantido até " + until + "." : "") + "</p>" +
+        '<p class="muted">A cobrança é mensal e você pode cancelar quando quiser. O acesso continua até o fim do período já pago.</p>' +
+        '<button class="btn ghost" id="bCancelBtn">Cancelar assinatura</button>';
+    } else if (a.plan === "active" && a.canceled) {
+      h += "<p><b>Assinatura cancelada.</b>" + (until ? " Você tem acesso até " + until + "." : "") + "</p>" + form("Assinar de novo") + sync;
+    } else if (a.plan === "trial") {
+      h += "<p><b>Teste grátis:</b> " + (a.days_left === 1 ? "último dia" : "faltam " + a.days_left + " dias") + ".</p>" +
+        '<p class="muted">Quer garantir o acesso sem interrupção? Você pode assinar agora. A cobrança de ' + price +
+        " por mês começa assim que você autorizar no Mercado Pago, e dá para cancelar a qualquer momento.</p>" + form("Assinar com Mercado Pago") + sync;
+    } else {
+      h += "<p><b>Seu acesso terminou.</b> Seu histórico continua salvo.</p>" +
+        '<p class="muted">Assine por ' + price + " por mês e cancele quando quiser.</p>" + form("Assinar com Mercado Pago") + sync;
+    }
+    box.innerHTML = h;
+    if ($("#bSubBtn")) $("#bSubBtn").addEventListener("click", async (e) => {
+      const payer = $("#bPayer").value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(payer)) { toast("Digite o e-mail da sua conta do Mercado Pago."); return; }
+      e.target.disabled = true;
+      try { const r = await api("billing/subscribe", { method: "POST", body: JSON.stringify({ payer_email: payer }) }); location.href = r.url; }
+      catch (ex) { e.target.disabled = false; if (ex.message !== "401") toast(ex.message); }
+    });
+    if ($("#bSyncBtn")) $("#bSyncBtn").addEventListener("click", () => syncBilling());
+    if ($("#bCancelBtn")) $("#bCancelBtn").addEventListener("click", () => $("#cancelSubBtn").click());
+    if ($("#bPixBtn")) $("#bPixBtn").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try { showPix(await api("billing/pix", { method: "POST", body: "{}" })); }
+      catch (ex) { e.target.disabled = false; if (ex.message !== "401") toast(ex.message); }
+    });
+  }
+  let pixTimer = null;
+  function showPix(r) {
+    const box = $("#pixBox");
+    if (!box) return;
+    const img = r.qr_base64 ? '<img alt="QR Code Pix" class="pix-qr" src="data:image/png;base64,' + r.qr_base64 + '">' : "";
+    box.innerHTML = img + '<p class="muted">Abra o app do seu banco, escolha Pix e leia o QR Code, ou use o código copia e cola:</p>' +
+      '<textarea id="pixCode" class="pix-code" readonly rows="3"></textarea>' +
+      '<button class="btn small" id="pixCopy">Copiar código</button>' +
+      '<p class="muted" id="pixState">Aguardando o pagamento…</p>';
+    $("#pixCode").value = r.qr_code;
+    $("#pixCopy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(r.qr_code); toast("Código copiado."); }
+      catch (_) { $("#pixCode").select(); toast("Selecione e copie o código."); }
+    });
+    clearInterval(pixTimer);
+    let tries = 0;
+    pixTimer = setInterval(async () => {
+      tries++;
+      if (!$("#pixState") || tries > 120) { clearInterval(pixTimer); return; }
+      try {
+        const s = await api("billing/pix/check", { method: "POST", body: JSON.stringify({ payment_id: r.payment_id }) });
+        if (s.status === "approved") {
+          clearInterval(pixTimer);
+          toast("Pagamento confirmado! Bom treino.");
+          state.homeDirty = true; loadHome();
+        }
+      } catch (_) { /* tenta de novo no próximo ciclo */ }
+    }, 5000);
   }
   async function syncBilling(silent) {
     try {
@@ -208,15 +297,238 @@
       toast("Trilha atualizada. As perguntas do nível 4 já mudaram.");
     } catch (ex) { if (ex.message !== "401") toast(ex.message); }
   });
-  async function loadAdmin() {
+  /* ---------- painel do administrador: estatísticas comerciais e leads ---------- */
+  const adm = { seg: "all", q: "", order: "created_at", desc: true, offset: 0, limit: 25 };
+  const aEsc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const SEG_LABEL = { all: "Todos", trial: "Em teste", trial_expiring: "Teste acaba em 2 dias", trial_inactive: "Em teste parados 3d+",
+    near_quota: "Perto do limite de minutos", expired: "Teste vencido", expired_engaged: "Vencidos que treinaram", paying: "Assinantes",
+    churned: "Cancelados", unverified: "E-mail não confirmado", want_to_pay: "Querem assinar", never_practiced: "Nunca treinaram" };
+  const SEG_BADGE = { trial: "Teste", expired: "Vencido", paying: "Assinante", churned: "Cancelado" };
+  const TRACK_LABEL = { junior: "Júnior", pleno: "Pleno", senior: "Sênior", especialista: "Especialista" };
+  const aPct = (n, d) => (Number(d) ? Math.round((Number(n) / Number(d)) * 100) + "%" : "–");
+  const aDate = (v) => (v ? new Date(v).toLocaleDateString("pt-BR") : "–");
+  const aAgo = (v) => {
+    if (!v) return "nunca";
+    const d = Math.floor((Date.now() - new Date(v).getTime()) / 86400000);
+    return d <= 0 ? "hoje" : d === 1 ? "ontem" : "há " + d + " dias";
+  };
+  const aDelta = (now, prev) => {
+    now = Number(now); prev = Number(prev);
+    if (!prev) return "";
+    const p = Math.round(((now - prev) / prev) * 100);
+    return (p > 0 ? "+" : "") + p + "% vs. semana anterior";
+  };
+  function fillSegSelect(counts) {
+    const sel = $("#admSeg");
+    if (!sel) return;
+    sel.innerHTML = Object.keys(SEG_LABEL).map((k) => '<option value="' + k + '"' + (k === adm.seg ? " selected" : "") + ">" +
+      SEG_LABEL[k] + (counts && counts[k] != null ? " (" + counts[k] + ")" : "") + "</option>").join("");
+  }
+  function leadCard(l) {
+    const seg = l.segment;
+    const wants = l.wants_subscription_at ? ' <span class="badge">quer assinar</span>' : "";
+    const mail = l.email ? '<a href="mailto:' + aEsc(l.email) + '">' + aEsc(l.email) + "</a>" : "sem e-mail";
+    const when = seg === "paying" || seg === "churned" ? "pago até " + aDate(l.paid_until) : "teste até " + aDate(l.trial_ends_at);
+    return '<div class="lead"><div class="lead-top"><strong>' + aEsc(l.name) + '</strong><span><span class="badge b-' + seg + '">' +
+      (SEG_BADGE[seg] || seg) + "</span>" + wants + "</span></div>" +
+      '<div class="lead-mail">' + mail + (l.email_verified ? "" : " · e-mail não confirmado") + "</div>" +
+      '<div class="lead-meta">cadastro ' + aDate(l.created_at) + " · nível " + l.level + " · trilha " + aEsc(TRACK_LABEL[l.target_level] || "–") + " · " + when + "</div>" +
+      '<div class="lead-meta">origem ' + aEsc(SRC_LABEL[l.signup_source] || l.signup_source || "não registrada") + (l.signup_campaign ? " · campanha " + aEsc(l.signup_campaign) + (l.signup_content ? " / " + aEsc(l.signup_content) : "") : "") + "</div>" +
+      '<div class="lead-meta">' + l.attempts + " treinos · último " + aAgo(l.last_at) + " · " + Number(l.azure_min) + " min de áudio" +
+      (l.avg_score != null ? " · nota média " + l.avg_score : "") + "</div></div>";
+  }
+  function leadsQuery(limit, offset) {
+    return "admin/leads?seg=" + encodeURIComponent(adm.seg) + "&q=" + encodeURIComponent(adm.q) + "&order=" + adm.order +
+      "&desc=" + adm.desc + "&limit=" + limit + "&offset=" + offset;
+  }
+  async function loadLeads(reset) {
+    if (reset) adm.offset = 0;
     try {
-      const s = await api("admin/stats");
-      const cell = (n, l) => '<div class="stat"><strong>' + n + "</strong><span>" + l + "</span></div>";
-      $("#adminBox").innerHTML = '<div class="block"><div class="row"><span class="label">Painel do administrador</span></div><div class="stats stats-admin">' +
+      const r = await api(leadsQuery(adm.limit, adm.offset));
+      fillSegSelect(r.counts);
+      const list = $("#admList");
+      const html = r.items.map(leadCard).join("");
+      if (reset) list.innerHTML = html || '<p class="muted">Nenhum lead neste filtro.</p>';
+      else list.insertAdjacentHTML("beforeend", html);
+      $("#admTotal").textContent = r.total + (r.total === 1 ? " lead" : " leads");
+      $("#admMore").hidden = adm.offset + adm.limit >= r.total;
+    } catch (e) { if (e.message !== "401") toast(e.message); }
+  }
+  async function exportLeads() {
+    try {
+      const r = await api(leadsQuery(2000, 0));
+      const cols = [["nome", "name"], ["email", "email"], ["email_confirmado", "email_verified"], ["situacao", "segment"], ["nivel", "level"],
+        ["trilha", "target_level"], ["cadastro", "created_at"], ["teste_ate", "trial_ends_at"], ["pago_ate", "paid_until"], ["treinos", "attempts"],
+        ["primeiro_treino", "first_at"], ["ultimo_treino", "last_at"], ["min_audio", "azure_min"], ["nota_media", "avg_score"], ["quer_assinar", "wants_subscription_at"],
+        ["origem", "signup_source"], ["campanha", "signup_campaign"], ["post", "signup_content"]];
+      const cell = (v) => {
+        let s = v == null ? "" : String(v);
+        if (/^[=+\-@]/.test(s)) s = "'" + s;
+        return '"' + s.replace(/"/g, '""') + '"';
+      };
+      const lines = [cols.map((c) => c[0]).join(",")].concat(r.items.map((l) => cols.map((c) => cell(l[c[1]])).join(",")));
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
+      a.download = "leads-meuingles-" + new Date().toISOString().slice(0, 10) + ".csv";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (e) { if (e.message !== "401") toast(e.message); }
+  }
+  /* ---------- painel do administrador: custos do mês ---------- */
+  async function loadCosts() {
+    const box = $("#admCosts");
+    if (!box) return;
+    try {
+      const c = await api("admin/costs");
+      const brl = (v) => "R$ " + Number(v || 0).toFixed(2).replace(".", ",");
+      const usd = (v) => "US$ " + Number(v || 0).toFixed(2);
+      const cell = (n, l, note) => '<div class="stat"><strong>' + aEsc(n) + "</strong><span>" + aEsc(l) + (note ? '<em class="delta">' + aEsc(note) + "</em>" : "") + "</span></div>";
+      const tbl = (head, body) => '<div class="tbl-wrap"><table class="table"><thead><tr>' + head.map((x) => "<th>" + x + "</th>").join("") + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+      const T = c.totals, P = c.paying, K = c.caps, R = c.rates;
+      const segName = (s) => aEsc(SEG_BADGE[s] || s);
+      let h = '<div class="block"><span class="label">Custos do mês (' + aEsc(c.month) + ')</span><div class="stats stats-admin">' +
+        cell(brl(T.total_brl), "custo total", usd(T.total_usd)) + cell(brl(T.azure_brl), "áudio avaliado (Azure)", (T.azure_h * 60).toFixed(1).replace(".", ",") + " min") +
+        cell(brl(T.llm_brl), "correções com IA", T.llm_calls + " chamadas") +
+        cell(brl(T.avg_brl), "custo por usuário ativo", T.active_users + " ativos") +
+        cell(brl(c.unconverted_brl), "gasto com quem ainda não assinou") +
+        cell(P.margin_pct == null ? "–" : P.margin_pct + "%", "margem dos assinantes", brl(P.margin_brl) + " no mês") + "</div>" +
+        '<span class="label">Teto de custo por conta</span><div class="stats stats-admin">' +
+        cell(brl(K.paying_brl), "assinante com a franquia cheia", K.paying_pct_net == null ? "" : K.paying_pct_net + "% da receita líquida") +
+        cell(brl(K.trial_brl), "teste com a franquia cheia") + cell(brl(P.net_per_user_brl), "receita líquida por assinante") + "</div>" +
+        '<span class="label">Custo por situação da conta</span>' + tbl(["Situação", "Contas", "Áudio", "IA", "Total"],
+          c.segments.map((s) => "<tr><td>" + segName(s.seg) + "</td><td>" + s.users + "</td><td>" + brl(s.azure_brl) + "</td><td>" + brl(s.llm_brl) + "</td><td>" + brl(s.total_brl) + "</td></tr>").join("")) +
+        '<span class="label">Quem mais custa no mês</span>' + tbl(["Nome", "Situação", "Min", "IA", "Custo"],
+          c.top.map((t) => "<tr><td>" + aEsc(t.name) + "</td><td>" + segName(t.seg) + "</td><td>" + String(t.azure_min).replace(".", ",") + "</td><td>" + t.llm_calls + "</td><td>" + brl(t.brl) + "</td></tr>").join("")) +
+        '<p class="adm-sub">Premissas: Azure US$ ' + R.azure_h + "/h · IA US$ " + R.llm_in + " e US$ " + R.llm_out + " por milhão de tokens (entrada e saída) · dólar R$ " + String(R.usd_brl).replace(".", ",") +
+        " · taxa de pagamento " + R.fee_pct + "% · valores antes de imposto. Tokens medidos em " + (T.measured_pct == null ? "–" : T.measured_pct + "%") + " das correções; as demais usam uma média estimada.</p></div>";
+      box.innerHTML = h;
+    } catch (e) { box.innerHTML = ""; }
+  }
+  /* ---------- painel do administrador: visitas ao site ---------- */
+  const trf = { days: 7 };
+  const fmtDur = (s) => { s = Math.round(Number(s) || 0); return s < 60 ? s + "s" : (Math.floor(s / 60) + "min " + (s % 60 ? (s % 60) + "s" : "")).trim(); };
+  const SRC_LABEL = { linkedin: "LinkedIn", direto: "Direto / sem origem", google: "Google", x: "X (Twitter)", meta: "Facebook / Instagram",
+    whatsapp: "WhatsApp", facebook: "Facebook", instagram: "Instagram" };
+  async function loadTraffic() {
+    const box = $("#admTraffic");
+    if (!box) return;
+    try {
+      const t = await api("admin/traffic?days=" + trf.days);
+      const S = Number(t.sessions) || 0;
+      const cell = (n, l, note) => '<div class="stat"><strong>' + aEsc(n) + "</strong><span>" + aEsc(l) + (note ? '<em class="delta">' + aEsc(note) + "</em>" : "") + "</span></div>";
+      const rows = (arr, cols) => arr.map((r) => "<tr>" + cols.map((c) => "<td>" + c(r) + "</td>").join("") + "</tr>").join("");
+      const wrap = (head, body) => '<div class="tbl-wrap"><table class="table"><thead><tr>' + head.map((x) => "<th>" + x + "</th>").join("") + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+      const lbl = (k) => aEsc(SRC_LABEL[k] || k || "–");
+      let h = '<div class="block"><div class="adm-row"><span class="label">Visitas ao site</span><select id="trfDays" class="mini-sel">' +
+        [7, 30, 90].map((d) => '<option value="' + d + '"' + (d === trf.days ? " selected" : "") + ">Últimos " + d + " dias</option>").join("") + "</select></div>";
+      if (!S) {
+        h += '<p class="muted">Ainda sem visitas registradas neste período. Use o gerador de links abaixo nas suas publicações.</p>';
+      } else {
+        h += '<div class="stats stats-admin">' +
+          cell(t.visitors, "visitantes únicos", t.new_visitors + " novos") + cell(S, "sessões") + cell(t.pageviews, "páginas vistas") +
+          cell(fmtDur(t.avg_dur), "tempo médio por visita") + cell(fmtDur(t.med_dur), "tempo mediano") + cell(aPct(t.bounces, S), "saíram em menos de 10s") +
+          cell(aPct(t.cta, S), "clicaram em entrar") + cell(t.signups, "cadastros (todas as origens)") + cell(t.online, "online agora") + "</div>";
+        const funnel = [["Sessões", S], ["Clicaram em entrar", t.cta], ["Abriram o app", t.app_open], ["Cadastros com origem rastreada", t.signups_tracked]].map((p) =>
+          '<div class="fun"><div class="fun-l"><span>' + p[0] + "</span><b>" + p[1] + " · " + aPct(p[1], S) + '</b></div><div class="fun-bar"><i style="width:' +
+          Math.min(100, Math.max(2, Math.round((p[1] / S) * 100))) + '%"></i></div></div>').join("");
+        h += '<span class="label">Do clique ao cadastro</span><div class="fun-wrap">' + funnel + "</div>";
+        const mx = Math.max(1, ...t.by_day.map((d) => Number(d.sessions)));
+        h += '<span class="label">Sessões por dia</span><div class="spark">' + t.by_day.map((d) => '<i title="' + aDate(d.day + "T12:00:00") + ": " + d.sessions + ' sessões" style="height:' +
+          Math.max(3, Math.round((Number(d.sessions) / mx) * 100)) + '%"></i>').join("") + "</div>";
+        h += '<span class="label">De onde vêm</span>' + wrap(["Origem", "Visitas", "Tempo", "Saíram", "Entrar"],
+          rows(t.by_source, [(r) => lbl(r.k), (r) => r.sessions, (r) => fmtDur(r.avg_dur), (r) => r.bounce_pct + "%", (r) => aPct(r.cta, r.sessions)]));
+        if (t.by_campaign.length) h += '<span class="label">Por campanha e post</span>' + wrap(["Campanha", "Post", "Visitas", "Tempo", "Entrar", "App"],
+          rows(t.by_campaign, [(r) => aEsc(r.campaign), (r) => aEsc(r.content || "–"), (r) => r.sessions, (r) => fmtDur(r.avg_dur), (r) => aPct(r.cta, r.sessions), (r) => aPct(r.app_open, r.sessions)]));
+        h += '<span class="label">Cadastros e assinaturas por origem</span>' + wrap(["Origem", "Cadastros", "Confirmaram", "Treinaram", "Assinaram"],
+          rows(t.su_source, [(r) => lbl(r.k), (r) => r.n, (r) => aPct(r.verified, r.n), (r) => aPct(r.practiced, r.n), (r) => r.paid]));
+        if (t.su_campaign.length) h += '<span class="label">Cadastros por campanha e post</span>' + wrap(["Campanha", "Post", "Cadastros", "Treinaram", "Assinaram"],
+          rows(t.su_campaign, [(r) => aEsc(r.campaign), (r) => aEsc(r.content || "–"), (r) => r.n, (r) => aPct(r.practiced, r.n), (r) => r.paid]));
+        const hh = Array.from({ length: 24 }, (_, k) => Number((t.by_hour.find((x) => x.h === k) || {}).n || 0));
+        const hm = Math.max(1, ...hh);
+        h += '<span class="label">Horários com mais visitas (Brasília)</span><div class="spark">' + hh.map((n, k) => '<i title="' + k + "h: " + n + ' visitas" style="height:' + Math.max(3, Math.round((n / hm) * 100)) + '%"></i>').join("") + "</div>" +
+          '<p class="adm-sub">0h à esquerda, 23h à direita. Toque numa barra para ver o valor.</p>';
+        h += '<span class="label">Páginas</span>' + wrap(["Página", "Vistas", "Tempo", "Rolagem"], rows(t.pages, [(r) => aEsc(r.path), (r) => r.views, (r) => fmtDur(r.avg_dur), (r) => r.scroll + "%"]));
+        h += '<p class="adm-sub">Aparelhos: ' + t.by_device.map((d) => aEsc(d.k) + " " + aPct(d.n, S)).join(" · ") + "</p>";
+      }
+      h += '<span class="label">Gerador de link rastreado</span><div class="adm-ctl"><input id="gCmp" placeholder="Campanha (ex.: lancamento)" maxlength="40">' +
+        '<input id="gPost" placeholder="Post ou versão (ex.: post1)" maxlength="40"><input id="gOut" readonly></div>' +
+        '<button type="button" class="btn ghost" id="gCopy">Copiar link</button>' +
+        '<p class="adm-sub">Use um link diferente em cada publicação do LinkedIn para saber qual traz mais gente.</p></div>';
+      box.innerHTML = h;
+      $("#trfDays").addEventListener("change", (e) => { trf.days = Number(e.target.value); loadTraffic(); });
+      const slug = (v) => v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const gen = () => {
+        const c = slug($("#gCmp").value) || "campanha", p = slug($("#gPost").value);
+        $("#gOut").value = location.origin + "/?utm_source=linkedin&utm_medium=post&utm_campaign=" + c + (p ? "&utm_content=" + p : "");
+      };
+      $("#gCmp").addEventListener("input", gen); $("#gPost").addEventListener("input", gen); gen();
+      $("#gCopy").addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText($("#gOut").value); toast("Link copiado."); }
+        catch (e) { $("#gOut").select(); toast("Selecione e copie o link."); }
+      });
+    } catch (e) { box.innerHTML = ""; }
+  }
+  async function loadAdmin() {
+    const box = $("#adminBox");
+    try { localStorage.setItem("mi_notrack", "1"); } catch (e) {}
+    try {
+      const [s, i] = await Promise.all([api("admin/stats"), api("admin/insights").catch(() => null)]);
+      const cell = (n, l, note) => '<div class="stat"><strong>' + aEsc(n) + "</strong><span>" + aEsc(l) + (note ? '<em class="delta">' + aEsc(note) + "</em>" : "") + "</span></div>";
+      let h = '<div class="block"><div class="row"><span class="label">Painel do administrador</span></div><div class="stats stats-admin">' +
         cell(s.signups, "cadastros") + cell(s.verified, "e-mails confirmados") + cell(s.trial_active, "em teste") +
         cell(s.trial_ended, "teste vencido") + cell(s.want_to_pay, "querem assinar") + cell(s.paying, "assinantes") +
         cell(s.active_users_7d, "ativos em 7 dias") + cell(s.azure_min_month, "min de Azure no mês") + cell(s.llm_calls_7d, "correções IA em 7 dias") + "</div></div>";
-    } catch (e) { $("#adminBox").innerHTML = ""; }
+      if (i) {
+        const money = "R$ " + Number(i.mrr || 0).toFixed(2).replace(".", ",");
+        const funnel = [["Cadastros", i.signups], ["E-mail confirmado", i.verified], ["Fizeram 1 treino", i.practiced],
+          ["Engajados (5+ treinos)", i.engaged], ["Já assinaram", i.paid_ever]].map((p) =>
+          '<div class="fun"><div class="fun-l"><span>' + p[0] + "</span><b>" + p[1] + " · " + aPct(p[1], i.signups) + '</b></div><div class="fun-bar"><i style="width:' +
+          (Number(i.signups) ? Math.max(2, Math.round((p[1] / i.signups) * 100)) : 0) + '%"></i></div></div>').join("");
+        const mx = Math.max(1, ...i.signups_by_day.map((d) => Number(d.n)));
+        const spark = i.signups_by_day.map((d) => '<i title="' + aDate(d.day + "T12:00:00") + ": " + d.n + '" style="height:' +
+          Math.max(3, Math.round((Number(d.n) / mx) * 100)) + '%"></i>').join("");
+        const att = [["trial_expiring", i.trial_expiring, "testes acabam em até 2 dias"], ["trial_inactive", i.trial_inactive, "em teste sem treinar há 3+ dias"],
+          ["near_quota", i.near_quota, "perto do limite de minutos do teste"], ["expired_engaged", i.expired_engaged, "vencidos que treinaram 3+ vezes e não assinaram"],
+          ["want_to_pay", i.want_to_pay, "pediram aviso da assinatura"], ["unverified", i.unverified, "não confirmaram o e-mail"]].map((a) =>
+          '<button type="button" class="chip-att" data-seg="' + a[0] + '"><b>' + a[1] + "</b> " + a[2] + "</button>").join("");
+        const tracks = i.by_track.map((t) => "<tr><td>" + aEsc(TRACK_LABEL[t.k] || t.k) + "</td><td>" + t.n + "</td><td>" + t.paid + "</td><td>" + aPct(t.paid, t.n) + "</td></tr>").join("");
+        const levels = i.by_level.map((l) => "nível " + l.k + ": " + l.n).join(" · ");
+        h += '<div class="block"><span class="label">Estatísticas comerciais</span><div class="stats stats-admin">' +
+          cell(money, "receita mensal (assinantes ativos)") + cell(aPct(i.paid_ever, i.signups), "cadastro → assinatura") + cell(aPct(i.paid_ever, i.trial_decided), "conversão após o teste") +
+          cell(aPct(i.activated_24h, i.signups), "treinam nas primeiras 24h") + cell(i.hours_to_first == null ? "–" : i.hours_to_first + " h", "até o 1º treino (média)") +
+          cell(i.days_to_pay == null ? "–" : i.days_to_pay + " d", "até assinar (média)") +
+          cell(i.signups_7d, "cadastros em 7 dias", aDelta(i.signups_7d, i.signups_prev_7d)) + cell(i.active_7d, "ativos em 7 dias", aDelta(i.active_7d, i.active_prev_7d)) +
+          cell(i.paying_now, "assinantes agora") + "</div>" +
+          '<span class="label">Funil</span><div class="fun-wrap">' + funnel + "</div>" +
+          '<span class="label">Cadastros nos últimos 30 dias</span><div class="spark">' + spark + "</div>" +
+          '<span class="label">Quem abordar hoje</span><div class="chips-att">' + att + "</div>" +
+          '<span class="label">Conversão por trilha</span><table class="table"><thead><tr><th>Trilha</th><th>Leads</th><th>Pagaram</th><th>Conv.</th></tr></thead><tbody>' + tracks + "</tbody></table>" +
+          '<p class="adm-sub">Leads por nível: ' + levels + "</p></div>";
+      }
+      h += '<div id="admCosts"></div>';
+      h += '<div id="admTraffic"></div>';
+      h += '<div class="block"><span class="label">Leads</span><div class="adm-ctl"><select id="admSeg"></select>' +
+        '<select id="admOrder"><option value="created_at:desc">Mais recentes</option><option value="last_at:desc">Última atividade</option>' +
+        '<option value="attempts:desc">Mais treinos</option><option value="trial_ends_at:asc">Teste acaba primeiro</option></select>' +
+        '<input id="admQ" type="search" placeholder="Buscar nome ou e-mail" maxlength="80"></div>' +
+        '<div class="adm-row"><span class="muted" id="admTotal"></span><button type="button" class="linkbtn" id="admCsv">Exportar CSV</button></div>' +
+        '<div id="admList"></div><button type="button" class="btn ghost" id="admMore" hidden>Carregar mais</button></div>';
+      box.innerHTML = h;
+      fillSegSelect(null);
+      $("#admOrder").value = adm.order + ":" + (adm.desc ? "desc" : "asc");
+      $("#admQ").value = adm.q;
+      $("#admSeg").addEventListener("change", (e) => { adm.seg = e.target.value; loadLeads(true); });
+      $("#admOrder").addEventListener("change", (e) => { const p = e.target.value.split(":"); adm.order = p[0]; adm.desc = p[1] === "desc"; loadLeads(true); });
+      let tmr = null;
+      $("#admQ").addEventListener("input", (e) => { clearTimeout(tmr); tmr = setTimeout(() => { adm.q = e.target.value.trim(); loadLeads(true); }, 350); });
+      $("#admMore").addEventListener("click", () => { adm.offset += adm.limit; loadLeads(false); });
+      $("#admCsv").addEventListener("click", exportLeads);
+      box.querySelectorAll(".chip-att").forEach((b) => b.addEventListener("click", () => {
+        adm.seg = b.dataset.seg; loadLeads(true);
+        $("#admSeg").scrollIntoView({ behavior: "smooth", block: "center" });
+      }));
+      loadLeads(true); loadTraffic(); loadCosts();
+    } catch (e) { box.innerHTML = ""; }
   }
   $("#deleteBtn").addEventListener("click", () => { $("#deleteForm").hidden = false; $("#deletePass").focus(); });
   $("#deleteCancel").addEventListener("click", () => { $("#deleteForm").hidden = true; $("#deletePass").value = ""; });

@@ -104,3 +104,44 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS mp_payer_email text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS mp_created_at timestamptz;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS paid_until timestamptz;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_started_at timestamptz;
+
+-- Visitas ao site (medição própria, sem cookies e sem IP).
+CREATE TABLE IF NOT EXISTS visits (
+    pv           uuid PRIMARY KEY,
+    vid          text NOT NULL,
+    sid          text NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    path         text NOT NULL,
+    ref_host     text,
+    utm_source   text,
+    utm_medium   text,
+    utm_campaign text,
+    utm_content  text,
+    device       text,
+    inapp        text NOT NULL DEFAULT '',
+    is_new       boolean NOT NULL DEFAULT false,
+    dur_s        int NOT NULL DEFAULT 0,
+    max_scroll   int NOT NULL DEFAULT 0,
+    clicked_cta  boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS visits_created ON visits (created_at DESC);
+CREATE INDEX IF NOT EXISTS visits_vid ON visits (vid);
+
+-- Origem do cadastro (de onde a pessoa veio quando criou a conta).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_source text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_campaign text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_content text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signup_vid text;
+
+-- LGPD: ao excluir a conta, apaga as visitas anônimas ligadas a ela.
+CREATE OR REPLACE FUNCTION delete_user_visits() RETURNS trigger AS $$
+BEGIN
+    IF OLD.signup_vid IS NOT NULL THEN
+        DELETE FROM visits WHERE vid = OLD.signup_vid;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS users_delete_visits ON users;
+CREATE TRIGGER users_delete_visits BEFORE DELETE ON users FOR EACH ROW EXECUTE FUNCTION delete_user_visits();
