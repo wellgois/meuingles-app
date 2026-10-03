@@ -93,7 +93,8 @@ def collect(data, since=None, owner_name="", now=None):
         stats["level"] = level
         since_sql = f"and cast(dt as date) >= date '{since.isoformat()}'" if since else ""
         con.execute("create or replace temp view my_attempts as select attempt_id, cast(dt as date) as day, "
-                    f"main_score, coalesce(audio_ms, 0) as audio_ms from attempts where user_key = '{key}' {since_sql}")
+                    f"main_score, coalesce(audio_ms, 0) as audio_ms from attempts where user_key = '{key}' "
+                    f"and level in (1, 2) {since_sql}")
         daily = [{"day": r[0], "n": int(r[1]), "avg": float(r[2] or 0.0), "minutes": float(r[3] or 0.0)}
                  for r in con.execute("select day, count(*), round(avg(main_score), 1), "
                                       "round(sum(audio_ms) / 60000.0, 2) from my_attempts "
@@ -262,8 +263,8 @@ def render(stats):
               kpi(fmt(stats["avg_all"]) if stats["avg_all"] is not None else "–", "nota média geral")]
     body = [f'<section class="kpis">{"".join(cards)}</section>',
             '<section><h2>Nota média por dia</h2>' + line_chart(daily) +
-            f'<p class="note">Desde {since.strftime("%d/%m/%Y")}. A nota vai de 0 a 100: pronúncia avaliada pelo Azure Speech e, '
-            'nos níveis 3 e 4, também a correção de gramática por IA. A linha pontilhada é a meta de 80, '
+            f'<p class="note">Desde {since.strftime("%d/%m/%Y")}. Níveis 1 e 2 (palavras e frases). A nota vai de 0 a 100 e mede a pronúncia, avaliada pelo Azure Speech. '
+            'A linha pontilhada é a meta de 80, '
             'que vale 5 tentativas seguidas para subir de nível.</p></section>',
             '<section><h2>Minutos de áudio avaliado por dia</h2>' + minutes_chart(daily) + "</section>"]
     if stats["phonemes"]:

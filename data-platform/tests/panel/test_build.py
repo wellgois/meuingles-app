@@ -47,7 +47,8 @@ def data(tmp_path):
         {"user_key": OTHER, "level": 1, "plan": "trial", "is_owner": False, "created_at": TS}])
     write(root, "attempts", "dt=2026-10-01", [attempt(1, OWNER, 60.0, 30000), attempt(2, OWNER, 80.0, 30000)])
     write(root, "attempts", "dt=2026-10-02", [attempt(3, OWNER, 90.0, 60000), attempt(5, OTHER, 10.0, 600000)])
-    write(root, "attempts", "dt=2026-10-03", [attempt(4, OWNER, 70.0, 30000)])
+    write(root, "attempts", "dt=2026-10-03",
+          [attempt(4, OWNER, 70.0, 30000), dict(attempt(6, OWNER, 22.0, 30000), level=4)])
     theta = [(1, 40.0), (2, 50.0), (3, 60.0), (4, 50.0), (1, 50.0), (2, 50.0)]
     rows = [phoneme(i, n, "θ", s) for n, (i, s) in enumerate(theta)]
     rows += [phoneme(i, 10 + i, "ɹ", 70.0) for i in (1, 2, 3, 4)]
@@ -115,3 +116,11 @@ def test_cli_grava_a_pagina_e_resume(data, tmp_path, capsys):
     assert not (tmp_path / "pub" / "index.html.tmp").exists()
     summary = json.loads(capsys.readouterr().out)
     assert summary["total_attempts"] == 4 and summary["empty"] is False
+
+
+def test_so_niveis_1_e_2_entram(data):
+    s = build.collect(data)
+    assert s["total_attempts"] == 4
+    assert s["minutes"] == pytest.approx(2.5)
+    assert s["avg_all"] == pytest.approx(75.0)
+    assert [d["n"] for d in s["daily"]] == [2, 1, 1]
