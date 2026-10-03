@@ -9,6 +9,14 @@ services:
       - /opt/meuingles-data:/out
       - /opt/meuingles-data/pseudo.key:/run/secrets/pseudo_key:ro
     networks: [meuingles]
+  upload:
+    build: .
+    entrypoint: ["python", "-m", "extractor.upload"]
+    environment:
+      LAKE_SAS_FILE: /run/secrets/lake_sas
+    volumes:
+      - /opt/meuingles-data:/out:ro
+      - /opt/meuingles-data/lake.sas:/run/secrets/lake_sas:ro
 networks:
   meuingles:
     external: true

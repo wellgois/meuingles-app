@@ -16,3 +16,7 @@ Each run writes a manifest in `<out>/_runs/`. Quality checks run before anything
 
 ## Run
 `./run_extract.sh` (yesterday and the day before) or `./run_extract.sh --since 2026-10-01 --include-today`.
+
+## Upload to the lake
+`./run_upload.sh --all` (first load) or `./run_upload.sh` (files changed in the last 72 hours) sends Parquet files and run manifests to `landing/` in the ADLS Gen2 container.
+Only an allow-list of paths is uploaded: keys, logs and anything else are never sent. The write-only SAS URL lives in `/opt/meuingles-data/lake.sas`.
