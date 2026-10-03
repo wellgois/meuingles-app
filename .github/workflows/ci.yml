@@ -93,7 +93,7 @@ jobs:
         working-directory: data-platform
         env:
           FAIL_ON_SKIP: "1"
-        run: pytest -q -p no:cacheprovider tests/gold
+        run: pytest -q -p no:cacheprovider tests/gold tests/panel
 
   airflow:
     runs-on: ubuntu-24.04
