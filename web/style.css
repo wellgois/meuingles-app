@@ -175,6 +175,9 @@ button.w{border:0;cursor:pointer;font:inherit;font-weight:700;font-size:14.5px}
 .doc p,.doc ul{margin:0 0 10px}
 .doc a{color:var(--accent)}
 .field select{width:100%;min-width:0}
+.subform{display:grid;gap:8px;margin-top:10px}
+.subform .btn{justify-self:start}
+.sub-pending{margin:8px 0 0}
 .track-box{gap:8px}
 .track-box .muted{font-size:13.5px}
 

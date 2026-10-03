@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from . import auth, azure_speech, content, jobs, llm, mailer
+from . import auth, azure_speech, billing, content, jobs, llm, mailer
 from .scoring import SHORT, score_open, score_repeat
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@localhost/meuingles")
@@ -213,6 +213,7 @@ def account_info(conn, user) -> dict:
     used = auth.audio_used_ms(conn, user, a["plan"])
     a.update({"name": user["name"], "email": user["email"], "wants_subscription": user["wants_subscription_at"] is not None,
               "track": user.get("target_level"), "tracks": content.TRACKS,
+              "billing": billing.configured(), "price": billing.PRICE, "mp_payer_email": user.get("mp_payer_email"),
               "audio_used_min": round(used / 60000), "audio_limit_min": None if limit is None else round(limit / 60000)})
     return a
 
@@ -243,12 +244,114 @@ def set_track(body: TrackIn, user=Depends(current_user)):
     return {"ok": True, "track": body.track}
 
 
+# ---------- assinatura (Mercado Pago) ----------
+
+class SubscribeIn(BaseModel):
+    payer_email: str = Field(max_length=200)
+
+
+class SyncIn(BaseModel):
+    preapproval_id: str | None = Field(default=None, max_length=100)
+
+
+def _mp_error(e: Exception):
+    raise HTTPException(502, "O Mercado Pago não respondeu como esperado. Tente de novo em alguns minutos.") from e
+
+
+@app.post("/api/billing/subscribe")
+def subscribe(body: SubscribeIn, user=Depends(current_user)):
+    auth.rate_limit("subscribe:" + str(user["id"]), 6, 3600)
+    if not billing.configured():
+        raise HTTPException(503, "A assinatura ainda não está disponível.")
+    if user["plan"] == "owner":
+        raise HTTPException(400, "A conta do dono não precisa de assinatura.")
+    if not user["email_verified"]:
+        raise HTTPException(403, "Confirme seu e-mail antes de assinar.")
+    if auth.access(user)["plan"] == "active" and user.get("mp_status") == "authorized":
+        raise HTTPException(400, "Sua assinatura já está ativa.")
+    payer = body.payer_email.strip().lower()
+    if not auth.valid_email(payer):
+        raise HTTPException(422, "Digite o e-mail da sua conta do Mercado Pago.")
+    try:
+        pre = billing.create(user, payer)
+    except Exception as e:  # noqa: BLE001
+        _mp_error(e)
+    with db() as conn:
+        conn.execute("""UPDATE users SET mp_preapproval_id = %s, mp_status = %s, mp_payer_email = %s, mp_created_at = now()
+                        WHERE id = %s""", (pre["id"], pre.get("status", "pending"), payer, user["id"]))
+    return {"url": pre["init_point"]}
+
+
+@app.post("/api/billing/sync")
+def billing_sync(body: SyncIn, user=Depends(current_user)):
+    auth.rate_limit("sync:" + str(user["id"]), 20, 3600)
+    pid = body.preapproval_id or user.get("mp_preapproval_id")
+    if not pid or not billing.configured():
+        return {"status": None}
+    try:
+        pre = billing.get(pid)
+    except Exception as e:  # noqa: BLE001
+        _mp_error(e)
+    if pre.get("external_reference") != str(user["id"]):
+        raise HTTPException(403, "Essa assinatura não é desta conta.")
+    with db() as conn:
+        billing.apply(conn, pre)
+    return {"status": pre.get("status")}
+
+
+@app.post("/api/billing/cancel")
+def billing_cancel(user=Depends(current_user)):
+    pid = user.get("mp_preapproval_id")
+    if not pid or user.get("mp_status") != "authorized":
+        raise HTTPException(400, "Não há assinatura ativa para cancelar.")
+    try:
+        pre = billing.cancel(pid)
+        if pre.get("status") != "cancelled":
+            pre = billing.get(pid)
+    except Exception as e:  # noqa: BLE001
+        _mp_error(e)
+    with db() as conn:
+        billing.apply(conn, pre)
+    return {"status": pre.get("status")}
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request):
+    """Aviso do Mercado Pago. Só serve de gatilho: o status é sempre lido de novo na API."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    q = request.query_params
+    kind = body.get("type") or q.get("type") or q.get("topic") or ""
+    rid = str((body.get("data") or {}).get("id") or q.get("data.id") or q.get("id") or "")
+    if not rid or not billing.configured() or not rid.replace("-", "").isalnum():
+        return {"ok": True}
+    try:
+        if "authorized_payment" in kind:
+            pay = await run_in_threadpool(billing._call, "GET", "/authorized_payments/" + rid)
+            rid = str(pay.get("preapproval_id") or "")
+        if rid:
+            pre = await run_in_threadpool(billing.get, rid)
+            with db() as conn:
+                billing.apply(conn, pre)
+    except Exception as e:  # noqa: BLE001 - responder 200 evita reenvio infinito
+        print("webhook Mercado Pago:", e)
+    return {"ok": True}
+
+
 @app.post("/api/me/delete")
 def delete_account(body: Confirm, user=Depends(current_user)):
     if user["plan"] == "owner":
         raise HTTPException(400, "A conta do dono não pode ser excluída pelo app.")
     if not auth.check_password(body.password, user["pass_hash"]):
         raise HTTPException(401, "Senha incorreta.")
+    if user.get("mp_preapproval_id") and user.get("mp_status") in ("authorized", "pending", "paused") and billing.configured():
+        try:
+            billing.cancel(user["mp_preapproval_id"])
+        except Exception as e:  # noqa: BLE001
+            if user.get("mp_status") == "authorized":
+                raise HTTPException(502, "Não consegui cancelar sua assinatura no Mercado Pago agora. Tente de novo em alguns minutos.") from e
     with db() as conn:
         conn.execute("DELETE FROM users WHERE id = %s", (user["id"],))
     return {"ok": True}
@@ -264,7 +367,7 @@ def admin_stats(user=Depends(current_user)):
                                    count(*) FILTER (WHERE plan = 'trial' AND trial_ends_at > now()) AS trial_active,
                                    count(*) FILTER (WHERE plan = 'trial' AND trial_ends_at <= now()) AS trial_ended,
                                    count(*) FILTER (WHERE wants_subscription_at IS NOT NULL) AS want_to_pay,
-                                   count(*) FILTER (WHERE plan = 'active') AS paying
+                                   count(*) FILTER (WHERE plan IN ('active', 'canceled') AND paid_until > now()) AS paying
                             FROM users""").fetchone()
         a = conn.execute("""SELECT count(*) AS attempts_7d, count(DISTINCT user_id) AS active_users_7d,
                                    round(coalesce(sum(audio_ms), 0) / 60000.0) AS azure_min_7d,

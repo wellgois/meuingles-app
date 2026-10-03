@@ -93,9 +93,15 @@ def access(user) -> dict:
     ends = user.get("trial_ends_at")
     if plan == "trial" and ends is not None and ends <= now:
         plan = "expired"
+    paid = user.get("paid_until")
+    canceled = plan == "canceled"
+    if plan in ("active", "canceled"):
+        plan = "active" if paid is not None and paid > now else "expired"
     days_left = int(max(0, ((ends - now).total_seconds() + 86399) // 86400)) if ends and plan == "trial" else None
     return {"plan": plan, "trial_ends_at": ends.isoformat() if ends else None, "days_left": days_left,
-            "email_verified": bool(user.get("email_verified")), "is_admin": bool(user.get("is_admin"))}
+            "email_verified": bool(user.get("email_verified")), "is_admin": bool(user.get("is_admin")),
+            "paid_until": paid.isoformat() if paid else None, "canceled": canceled,
+            "mp_status": user.get("mp_status")}
 
 
 def audio_limit_ms(plan: str) -> int | None:
@@ -122,7 +128,7 @@ def require_practice(user) -> str:
     if not a["email_verified"]:
         raise HTTPException(403, "Confirme seu e-mail para começar a treinar. O link está na sua caixa de entrada.")
     if a["plan"] == "expired":
-        raise HTTPException(402, "Seu teste grátis de 7 dias terminou. A assinatura de R$ 29,90 por mês abre em breve; avisaremos por e-mail.")
+        raise HTTPException(402, "Seu acesso terminou. Assine por R$ 29,90 por mês na tela inicial para continuar treinando.")
     return a["plan"]
 
 

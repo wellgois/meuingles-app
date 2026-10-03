@@ -2,6 +2,7 @@
 
     docker compose exec api python -m app.admin dono      -> cria a conta do dono e junta os treinos antigos nela
     docker compose exec api python -m app.admin testar-email voce@exemplo.com
+    docker compose exec api python -m app.admin avisar-assinatura   -> avisa a lista "Quero assinar"
 """
 import getpass
 import sys
@@ -56,11 +57,34 @@ def testar_email(to: str):
     print("Enviado. Confira a caixa de entrada e o spam." if ok else "Falhou. Veja o aviso acima.")
 
 
+def avisar_assinatura():
+    if not mailer.configured():
+        sys.exit("E-mail não configurado.")
+    with db() as conn:
+        rows = conn.execute("""SELECT id, name, email FROM users WHERE wants_subscription_at IS NOT NULL
+                               AND email_verified AND plan NOT IN ('active', 'owner')""").fetchall()
+    print(f"Pessoas na lista 'Quero assinar' sem assinatura: {len(rows)}")
+    if not rows or input("Enviar o aviso agora? (s/N) ").strip().lower() != "s":
+        print("Nada foi enviado."); return
+    sent = 0
+    for u in rows:
+        if mailer.send(u["email"], "A assinatura do MeuInglês abriu", [
+                f"Oi, {u['name'].split(' ')[0]}! Você pediu para ser avisado: a assinatura do MeuInglês já está disponível.",
+                "São R$ 29,90 por mês pelo Mercado Pago, com até 300 minutos de pronúncia avaliada e cancelamento no próprio app."],
+                ("Assinar agora", mailer.base_url() + "app/")):
+            sent += 1
+    with db() as conn:
+        conn.execute("UPDATE users SET wants_subscription_at = NULL WHERE id = ANY(%s)", ([u["id"] for u in rows],))
+    print(f"Avisos enviados: {sent}.")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "dono":
         dono()
     elif cmd == "testar-email" and len(sys.argv) > 2:
         testar_email(sys.argv[2])
+    elif cmd == "avisar-assinatura":
+        avisar_assinatura()
     else:
         print(__doc__)

@@ -4,7 +4,7 @@ A speaking coach for technical English in data engineering. You talk, the app sc
 
 Live at `meuingles.wellgois.com`.
 
-## Current status: phase 2.1 (landing page, career tracks)
+## Current status: phase 2.2 (Mercado Pago subscription)
 
 | Part | Status |
 | --- | --- |
@@ -20,7 +20,8 @@ Live at `meuingles.wellgois.com`.
 | Privacy | Audio is never stored; users can delete their account and all their data from the app (LGPD) |
 | Career tracks | Junior, mid-level, senior and staff tracks choose which STAR interview questions come first in level 4 |
 | Site | Landing page at `/` with Open Graph preview, the app at `/app/`; pages are revalidated on every visit (`Cache-Control: no-cache`) |
-| Next | Mercado Pago subscription (R$ 29,90/month), interview simulator, data pipeline (ADF / Airflow, Databricks, dbt) |
+| Subscription | Mercado Pago preapproval per user (R$ 29,90/month); status is always re-read from the Mercado Pago API (return URL, webhook and an hourly sync), cancel from the app |
+| Next | Interview simulator, data pipeline (ADF / Airflow, Databricks, dbt) |
 
 ## Architecture
 

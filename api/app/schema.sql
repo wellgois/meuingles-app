@@ -96,3 +96,11 @@ CREATE TABLE IF NOT EXISTS email_tokens (
 
 -- Fase 2.1: trilha pela vaga desejada (júnior, pleno, sênior, especialista).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS target_level text;
+
+-- Fase 2.2: assinatura mensal pelo Mercado Pago.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mp_preapproval_id text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mp_status text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mp_payer_email text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mp_created_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS paid_until timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_started_at timestamptz;

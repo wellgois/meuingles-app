@@ -140,18 +140,42 @@
     $("#accEmail").textContent = a.email || "";
     $("#trackSel").value = a.track || "";
     $("#delWrap").hidden = a.plan === "owner";
+    $("#cancelWrap").hidden = !(a.plan === "active" && !a.canceled && a.mp_status === "authorized");
+    const price = "R$ " + Number(a.price || 29.9).toFixed(2).replace(".", ",");
+    const subForm = (label) => a.billing
+      ? '<div class="subform"><label class="field"><span class="label">E-mail da sua conta do Mercado Pago</span>' +
+        '<input id="payerInput" type="email" autocomplete="email" maxlength="200" value="' + esc(a.mp_payer_email || a.email || "") + '"></label>' +
+        '<button class="btn small" id="subBtn">' + label + "</button></div>"
+      : (a.wants_subscription ? "<br>Você está na lista: avisaremos por e-mail." : '<br><button class="btn small" id="wantBtn">Quero assinar quando abrir</button>');
+    const pending = a.mp_status === "pending" && a.plan !== "active"
+      ? '<p class="sub-pending">Começou a assinatura e já pagou? <button class="linkbtn" id="syncBtn">Verificar pagamento</button></p>' : "";
     let h = "";
     if (a.plan !== "owner" && !a.email_verified) {
       h = '<div class="banner warn"><b>Confirme seu e-mail para começar a treinar.</b> Enviamos um link para ' + esc(a.email) +
         '. <button class="linkbtn" id="resendBtn">Reenviar e-mail</button></div>';
     } else if (a.plan === "trial") {
       h = '<div class="banner"><b>Teste grátis:</b> ' + (a.days_left === 1 ? "último dia" : "faltam " + a.days_left + " dias") +
-        " · " + a.audio_used_min + " de " + a.audio_limit_min + " min de áudio avaliado</div>";
+        " · " + a.audio_used_min + " de " + a.audio_limit_min + " min de áudio avaliado" +
+        (a.billing && a.days_left <= 2 ? "<br>Para continuar depois do teste, assine por " + price + " por mês." + subForm("Assinar com Mercado Pago") : "") +
+        pending + "</div>";
+    } else if (a.plan === "active" && a.canceled) {
+      h = '<div class="banner"><b>Assinatura cancelada.</b> Você tem acesso até ' + new Date(a.paid_until).toLocaleDateString("pt-BR") +
+        "." + subForm("Assinar de novo") + "</div>";
+    } else if (a.plan === "active") {
+      h = '<div class="banner"><b>Plano mensal ativo</b> · ' + a.audio_used_min + " de " + a.audio_limit_min + " min de áudio avaliado este mês</div>";
     } else if (a.plan === "expired") {
-      h = '<div class="banner warn"><b>Seu teste grátis terminou.</b> Seu histórico continua salvo. A assinatura de R$ 29,90 por mês abre em breve. ' +
-        (a.wants_subscription ? "<br>Você está na lista: avisaremos por e-mail." : '<br><button class="btn small" id="wantBtn">Quero assinar quando abrir</button>') + "</div>";
+      h = '<div class="banner warn"><b>Seu acesso terminou.</b> Seu histórico continua salvo. Para continuar treinando, assine por ' +
+        price + " por mês e cancele quando quiser." + subForm("Assinar com Mercado Pago") + pending + "</div>";
     }
     $("#accountBanner").innerHTML = h;
+    if ($("#subBtn")) $("#subBtn").addEventListener("click", async (e) => {
+      const payer = $("#payerInput").value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(payer)) { toast("Digite o e-mail da sua conta do Mercado Pago."); return; }
+      e.target.disabled = true;
+      try { const r = await api("billing/subscribe", { method: "POST", body: JSON.stringify({ payer_email: payer }) }); location.href = r.url; }
+      catch (ex) { e.target.disabled = false; if (ex.message !== "401") toast(ex.message); }
+    });
+    if ($("#syncBtn")) $("#syncBtn").addEventListener("click", () => syncBilling());
     if ($("#resendBtn")) $("#resendBtn").addEventListener("click", async () => {
       try { const r = await api("auth/resend", { method: "POST" }); toast(r.already ? "Seu e-mail já está confirmado." : r.sent ? "E-mail reenviado. Confira também o spam." : "Não consegui enviar agora. Tente mais tarde."); }
       catch (e) { if (e.message !== "401") toast(e.message); }
@@ -162,6 +186,19 @@
     });
     if (a.is_admin) loadAdmin(); else $("#adminBox").innerHTML = "";
   }
+  async function syncBilling(silent) {
+    try {
+      const r = await api("billing/sync", { method: "POST", body: "{}" });
+      if (r.status === "authorized") toast("Assinatura ativa! Bom treino.");
+      else if (!silent) toast(r.status === "pending" ? "O Mercado Pago ainda não confirmou o pagamento. Tente de novo em alguns minutos." : "Nenhuma assinatura ativa encontrada.");
+      state.homeDirty = true; loadHome();
+    } catch (ex) { if (ex.message !== "401") toast(ex.message); }
+  }
+  $("#cancelSubBtn").addEventListener("click", async () => {
+    if (!confirm("Cancelar a assinatura? Não haverá novas cobranças e você continua com acesso até o fim do período pago.")) return;
+    try { await api("billing/cancel", { method: "POST" }); toast("Assinatura cancelada."); state.homeDirty = true; loadHome(); }
+    catch (ex) { if (ex.message !== "401") toast(ex.message); }
+  });
   $("#trackSel").addEventListener("change", async (e) => {
     try {
       await api("me/track", { method: "POST", body: JSON.stringify({ track: e.target.value }) });
@@ -678,7 +715,7 @@
     show("home");
   }
   const params = new URLSearchParams(location.search);
-  if (params.has("verified") || params.has("reset") || params.has("m")) history.replaceState(null, "", location.pathname);
+  if (params.has("verified") || params.has("reset") || params.has("m") || params.has("assinatura")) history.replaceState(null, "", location.pathname);
   try { localStorage.removeItem("meuingles.auth"); } catch (e) {}
   state.auth = loadAuth();
   if (params.get("reset")) {
@@ -687,6 +724,7 @@
     start();
     if (params.get("verified") === "1") toast("E-mail confirmado! Bom treino.");
     if (params.get("verified") === "0") toast("Esse link de confirmação venceu. Peça um novo no aviso da tela inicial.");
+    if (params.has("assinatura")) syncBilling(true);
   } else {
     show("login");
     setAuthMode(params.has("verified") || params.get("m") === "login" ? "login" : "signup",
