@@ -1,0 +1,6 @@
+FROM python:3.12-slim-bookworm
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /repo/data-platform
+COPY requirements.txt requirements-lake.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-lake.txt pytest
