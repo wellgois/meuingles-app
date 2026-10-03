@@ -82,3 +82,28 @@ def feedback(kind: str, question: str, transcript: str, keywords: list[str] | No
     except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
         log.warning("LLM indisponível: %s", e)
         return None
+
+
+def chat(system: str, user_text: str, max_tokens: int = 700, model: str | None = None):
+    """Chamada genérica ao LLM: devolve (texto, {"in": n, "out": n}) ou None se estiver indisponível."""
+    if not configured():
+        return None
+    body = {
+        "model": model or os.environ.get("LLM_MODEL") or DEFAULT_MODEL,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": user_text}],
+    }
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages", data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"x-api-key": os.environ["LLM_API_KEY"], "anthropic-version": "2023-06-01",
+                 "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        log.warning("LLM indisponível: %s", e)
+        return None
+    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+    u = data.get("usage") or {}
+    return text, {"in": int(u.get("input_tokens", 0) or 0), "out": int(u.get("output_tokens", 0) or 0)}

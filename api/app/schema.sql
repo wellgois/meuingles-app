@@ -154,3 +154,31 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS users_delete_visits ON users;
 CREATE TRIGGER users_delete_visits BEFORE DELETE ON users FOR EACH ROW EXECUTE FUNCTION delete_user_visits();
+
+-- Fase 5: simulador de entrevista (nível 5). Transcrições só aqui; apagadas em cascata com a conta.
+CREATE TABLE IF NOT EXISTS interview_sessions (
+    id             uuid PRIMARY KEY,
+    user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    finished_at    timestamptz,
+    track          text,
+    status         text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'finished', 'abandoned')),
+    questions      jsonb NOT NULL,
+    overall        numeric(5,1),
+    report         jsonb,
+    llm_in_tokens  int NOT NULL DEFAULT 0,
+    llm_out_tokens int NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS interview_sessions_user ON interview_sessions (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS interview_turns (
+    session_id  uuid NOT NULL REFERENCES interview_sessions(id) ON DELETE CASCADE,
+    seq         int NOT NULL,
+    q_index     int NOT NULL,
+    kind        text NOT NULL CHECK (kind IN ('question', 'followup')),
+    prompt      text NOT NULL,
+    answer      text,
+    duration_ms int,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id, seq)
+);

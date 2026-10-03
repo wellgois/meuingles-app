@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from . import auth, azure_speech, billing, content, jobs, leads, llm, mailer, traffic, costs
+from . import auth, azure_speech, billing, content, jobs, leads, llm, mailer, traffic, costs, interview
 from .scoring import SHORT, score_open, score_repeat
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@localhost/meuingles")
@@ -55,6 +55,7 @@ current_user = auth.make_current_user(db)
 leads.register(app, db, current_user)
 traffic.register(app, db, current_user)
 costs.register(app, db, current_user)
+interview.register(app, db, current_user)
 
 
 # ---------- públicos ----------
