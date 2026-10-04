@@ -3,6 +3,8 @@ import os
 
 from fastapi import Depends, HTTPException
 
+from . import plans
+
 PRICE_BRL = float(os.environ.get("PLAN_PRICE", "29.90"))
 USD_BRL = float(os.environ.get("USD_BRL", "5.50"))
 FEE_PCT = float(os.environ.get("PAY_FEE_PCT", "5"))
@@ -64,6 +66,7 @@ def register(app, db, current_user):
             rows = conn.execute(SQL, {"d_in": DEF_IN, "d_out": DEF_OUT}).fetchall()
             paying_now = conn.execute(
                 "SELECT count(*) AS n FROM users WHERE plan IN ('active', 'canceled') AND paid_until > now()").fetchone()["n"]
+            payers = conn.execute("SELECT tier, mp_status FROM users WHERE plan IN ('active', 'canceled') AND paid_until > now()").fetchall()
             month = conn.execute("SELECT to_char(date_trunc('month', now()), 'MM/YYYY') AS m").fetchone()["m"]
         brl = lambda usd: round(usd * USD_BRL, 2)
         segs, top = {}, []
@@ -92,16 +95,19 @@ def register(app, db, current_user):
                      "total_brl": brl(s["az"] + s["llm"])} for s in sorted(segs.values(), key=lambda x: order.get(x["seg"], 9))]
         p = segs.get("paying", {"az": 0.0, "llm": 0.0})
         paying_cost = brl(p["az"] + p["llm"])
-        net_user = PRICE_BRL * (1 - FEE_PCT / 100)
-        net = paying_now * net_user
+        gross = sum(plans.value(r["tier"], r["mp_status"])[0] for r in payers)
+        net = sum(plans.value(r["tier"], r["mp_status"])[1] for r in payers)
+        net_user = net / paying_now if paying_now else PRICE_BRL * (1 - FEE_PCT / 100)
+        # receita líquida já somada por pagante (acima)
         margin = net - paying_cost
         total = az_t + llm_t
         n = len(rows)
-        cap_pay = MONTHLY_MIN / 60 * AZURE_USD_H * USD_BRL
+        cap_min = (sum(plans.TIERS[r["tier"]]["audio_min"] if r["tier"] in plans.TIERS else MONTHLY_MIN for r in payers) / paying_now) if paying_now else MONTHLY_MIN
+        cap_pay = cap_min / 60 * AZURE_USD_H * USD_BRL
         cap_trial = TRIAL_MIN / 60 * AZURE_USD_H * USD_BRL
         return {
             "month": month,
-            "rates": {"azure_h": AZURE_USD_H, "llm_in": LLM_IN, "llm_out": LLM_OUT, "usd_brl": USD_BRL, "fee_pct": FEE_PCT},
+            "rates": {"azure_h": AZURE_USD_H, "llm_in": LLM_IN, "llm_out": LLM_OUT, "usd_brl": USD_BRL, "fee_pct": (round(100 * (1 - net / gross), 2) if gross else FEE_PCT)},
             "totals": {"total_usd": round(total, 2), "total_brl": brl(total), "azure_brl": brl(az_t), "llm_brl": brl(llm_t),
                        "azure_h": round(az_h, 4), "llm_calls": calls, "interviews": sessions, "active_users": n,
                        "avg_brl": brl(total / n) if n else 0,

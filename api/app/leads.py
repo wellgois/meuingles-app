@@ -3,6 +3,8 @@ import os
 
 from fastapi import Depends, HTTPException, Query
 
+from . import plans
+
 TZ = "America/Sao_Paulo"
 PRICE = float(os.environ.get("PLAN_PRICE", "29.90"))
 TRIAL_AUDIO_MIN = int(os.environ.get("TRIAL_AUDIO_MIN", "120"))
@@ -129,5 +131,6 @@ def register(app, db, current_user):
                 FROM users u WHERE u.plan <> 'owner' GROUP BY 1 ORDER BY n DESC""").fetchall()
             by_level = conn.execute("""
                 SELECT level AS k, count(*) AS n FROM users WHERE plan <> 'owner' GROUP BY 1 ORDER BY 1""").fetchall()
-        return {**f, **act, "mrr": round(float(f["paying_now"]) * PRICE, 2), "price": PRICE,
+            payers = conn.execute("SELECT tier, mp_status FROM users WHERE plan IN ('active', 'canceled') AND paid_until > now()").fetchall()
+        return {**f, **act, "mrr": round(sum(plans.value(r["tier"], r["mp_status"])[0] for r in payers), 2), "price": PRICE,
                 "signups_by_day": by_day, "by_track": by_track, "by_level": by_level}
