@@ -278,6 +278,7 @@ def finish_session(conn, sid, user_id, report_maker):
                      "report = %s, llm_in_tokens = llm_in_tokens + %s, llm_out_tokens = llm_out_tokens + %s "
                      "WHERE id = %s AND status = 'active'",
                      (report["overall"], Jsonb(report), usage["in"], usage["out"], sid))
+        conn.execute("DELETE FROM interview_turns WHERE session_id = %s", (sid,))
     return report
 
 
@@ -360,9 +361,12 @@ def register(app, db, current_user):
     def interview_abandon(sid: str, user=Depends(current_user)):
         sid = _uuid(sid)
         with db() as conn:
-            row = conn.execute("UPDATE interview_sessions SET status = 'abandoned', finished_at = now() "
-                               "WHERE id = %s AND user_id = %s AND status = 'active' RETURNING id",
-                               (sid, user["id"])).fetchone()
+            with conn.transaction():
+                row = conn.execute("UPDATE interview_sessions SET status = 'abandoned', finished_at = now() "
+                                   "WHERE id = %s AND user_id = %s AND status = 'active' RETURNING id",
+                                   (sid, user["id"])).fetchone()
+                if row:
+                    conn.execute("DELETE FROM interview_turns WHERE session_id = %s", (sid,))
         if not row:
             raise HTTPException(404, "Simulação ativa não encontrada.")
         return {"ok": True}

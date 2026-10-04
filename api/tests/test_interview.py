@@ -222,3 +222,34 @@ def test_exclusao_da_conta_apaga_as_sessoes(fake_llm):
     with db() as conn:
         assert conn.execute("SELECT count(*) AS n FROM interview_sessions WHERE id = %s", (sid,)).fetchone()["n"] == 0
         assert conn.execute("SELECT count(*) AS n FROM interview_turns WHERE session_id = %s", (sid,)).fetchone()["n"] == 0
+
+
+def test_abandonar_descarta_as_respostas_e_conta_no_limite(fake_llm):
+    uid, h = make_user()
+    try:
+        sid = start(h).json()["active"]["session_id"]
+        assert answer(h, sid).status_code == 200
+        assert client.post(f"/api/interview/{sid}/abandon", headers=h).status_code == 200
+        with db() as conn:
+            assert conn.execute("SELECT count(*) AS n FROM interview_turns WHERE session_id = %s", (sid,)).fetchone()["n"] == 0
+            assert conn.execute("SELECT status FROM interview_sessions WHERE id = %s", (sid,)).fetchone()["status"] == "abandoned"
+            assert interview.used_today(conn, uid) == 1
+    finally:
+        drop_user(uid)
+
+
+def test_relatorio_pronto_apaga_o_texto_das_respostas(fake_llm):
+    uid, h = make_user()
+    try:
+        sid = start(h).json()["active"]["session_id"]
+        for _ in range(6):
+            if answer(h, sid, "my secret answer text").json().get("ready"):
+                break
+        assert client.post(f"/api/interview/{sid}/finish", headers=h).status_code == 200
+        with db() as conn:
+            assert conn.execute("SELECT count(*) AS n FROM interview_turns WHERE session_id = %s", (sid,)).fetchone()["n"] == 0
+            rep = conn.execute("SELECT report FROM interview_sessions WHERE id = %s", (sid,)).fetchone()["report"]
+        assert "secret answer" not in json.dumps(rep)
+        assert client.get(f"/api/interview/{sid}/report", headers=h).status_code == 200
+    finally:
+        drop_user(uid)
