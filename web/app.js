@@ -1041,6 +1041,7 @@
     const weak = (rep.questions || [])[rep.weakest_question];
     let h = '<span class="label">Relatório da simulação</span>' +
       '<div class="iv-score"><strong>' + ivPct(rep.overall) + "</strong><span>nota geral · " + (rep.passed ? "aprovado" : "abaixo de " + (s.pass_score || 75)) + "</span></div>" + bars;
+    if (rep.assisted) h += '<p class="muted">' + rep.assisted + (rep.assisted === 1 ? ' resposta usou' : ' respostas usaram') + ' a sugestão da IA. Vocabulário, gramática e clareza foram limitados; para uma nota fiel, responda com suas palavras.</p>';
     if (rep.strengths && rep.strengths.length) h += '<span class="label">Pontos fortes</span>' + list(rep.strengths);
     if (rep.improvements && rep.improvements.length) h += '<span class="label">O que melhorar</span>' + list(rep.improvements);
     if (rep.natural_version) {
