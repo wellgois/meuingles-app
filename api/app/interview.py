@@ -64,11 +64,16 @@ REPORT_SYSTEM = (
     '"strengths" (up to 3 short strings in Brazilian Portuguese), '
     '"improvements" (exactly 3 short, concrete strings in Brazilian Portuguese), '
     '"weakest_question" (the index 0, 1 or 2 of the weakest main question), '
-    '"natural_version" (a more natural spoken English version of the candidate\'s answer to that question, keeping the content, at most 90 words). '
+    '"natural_version" (a more natural spoken English version of the candidate\'s answer to that question, using only what the candidate actually said (never add tools, numbers, examples or claims the candidate did not mention; if the answer was short, keep it short), at most 90 words). '
     'Criteria: "star" scores the structure of the behavioral answer (Situation, Task, Action, Result with numbers); '
     '"technical" scores correctness and depth of the technical and system design answers; '
     '"vocabulary" scores correct use of data engineering terms; "grammar" scores grammar; '
-    '"clarity" scores organization and concision.'
+    '"clarity" scores organization and concision. '
+    'Scoring guide for every criterion: 90-100 is ready for a senior interview; 75-89 is solid with small gaps; '
+    '50-74 is understandable but vague or with clear gaps; below 50 is confusing, off topic or too short to judge. '
+    'Very short answers without concrete details cannot score above 60 on "star" or "technical". '
+    'In "strengths" and "improvements" refer to the questions as "na primeira pergunta", "na segunda pergunta" '
+    'or "na terceira pergunta", never as Q1, Q2 or Q3.'
 )
 
 
@@ -152,7 +157,7 @@ def _transcript(session, turns):
 def make_followup(session, turn, answer):
     kind = session["questions"][turn["q_index"]]["kind"]
     text = f"Question ({kind}): {turn['prompt']}\n\nCandidate's answer:\n{answer[:1500]}"
-    out = llm.chat(FOLLOWUP_SYSTEM, text, max_tokens=120, model=MODEL)
+    out = llm.chat(FOLLOWUP_SYSTEM, text, max_tokens=120, model=MODEL, temperature=0.7)
     if not out:
         return None, ZERO
     raw, usage = out
@@ -160,7 +165,7 @@ def make_followup(session, turn, answer):
 
 
 def make_report(session, turns):
-    out = llm.chat(REPORT_SYSTEM, _transcript(session, turns), max_tokens=900, model=REPORT_MODEL)
+    out = llm.chat(REPORT_SYSTEM, _transcript(session, turns), max_tokens=900, model=REPORT_MODEL, temperature=0.2)
     if not out:
         return None, ZERO
     raw, usage = out

@@ -87,7 +87,7 @@ def answer(h, sid, text="I led a migration and cut costs by 30 percent."):
 def fake_llm(monkeypatch):
     calls = []
 
-    def chat(system, user_text, max_tokens=700, model=None):
+    def chat(system, user_text, max_tokens=700, model=None, temperature=None):
         calls.append(system)
         if system == interview.FOLLOWUP_SYSTEM:
             return json.dumps({"followup": "Can you give a concrete number?"}), {"in": 100, "out": 20}
@@ -253,3 +253,18 @@ def test_relatorio_pronto_apaga_o_texto_das_respostas(fake_llm):
         assert client.get(f"/api/interview/{sid}/report", headers=h).status_code == 200
     finally:
         drop_user(uid)
+
+
+def test_temperatura_do_relatorio_e_baixa(monkeypatch):
+    seen = {}
+
+    def chat(system, user_text, max_tokens=700, model=None, temperature=None):
+        seen[system == interview.REPORT_SYSTEM] = temperature
+        return json.dumps(GOOD), {"in": 1, "out": 1}
+
+    monkeypatch.setattr(interview.llm, "chat", chat)
+    session = {"questions": [{"kind": "behavioral", "text": "q"}] * 3}
+    turns = [{"q_index": 0, "kind": "question", "prompt": "q", "answer": "a"}]
+    interview.make_report(session, turns)
+    interview.make_followup(session, turns[0], "a")
+    assert seen[True] <= 0.3 and seen[False] > seen[True]

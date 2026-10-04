@@ -84,7 +84,8 @@ def feedback(kind: str, question: str, transcript: str, keywords: list[str] | No
         return None
 
 
-def chat(system: str, user_text: str, max_tokens: int = 700, model: str | None = None):
+def chat(system: str, user_text: str, max_tokens: int = 700, model: str | None = None,
+         temperature: float | None = None):
     """Chamada genérica ao LLM: devolve (texto, {"in": n, "out": n}) ou None se estiver indisponível."""
     if not configured():
         return None
@@ -94,6 +95,8 @@ def chat(system: str, user_text: str, max_tokens: int = 700, model: str | None =
         "system": system,
         "messages": [{"role": "user", "content": user_text}],
     }
+    if temperature is not None:
+        body["temperature"] = temperature
     req = urllib.request.Request(
         "https://api.anthropic.com/v1/messages", data=json.dumps(body).encode("utf-8"), method="POST",
         headers={"x-api-key": os.environ["LLM_API_KEY"], "anthropic-version": "2023-06-01",
