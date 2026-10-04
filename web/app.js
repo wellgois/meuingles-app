@@ -55,7 +55,7 @@
     if (name === "progress" && state.progressDirty) loadProgress();
     if (name === "billing" && state.account) renderBilling(state.account);
     if (name === "practice") { renderItem(); drawWave(0, false); }
-    if (name === "interview") loadInterview(); else ivLeave();
+    if (name === "interview") { loadInterview(); loadCv(); } else ivLeave();
     window.scrollTo(0, 0);
   }
   $$("#tabs [data-tab]").forEach((t) => t.addEventListener("click", () => show(t.dataset.tab)));
@@ -680,6 +680,153 @@
     }));
   }
   $("#soundChip").addEventListener("click", openSounds);
+
+  /* ---------- meu currículo ---------- */
+  var cvs = { st: null, busy: false, edit: false, replacing: false };
+  const cvBox = (html) => { const b = $("#cvBox"); if (b) b.innerHTML = html; };
+  const cvHead = '<span class="label">Meu currículo</span>';
+  const cvUl = (arr) => (arr && arr.length ? '<ul class="iv-ul">' + arr.map((t) => "<li>" + esc(t) + "</li>").join("") + "</ul>" : "");
+  const cvErr = (e) => { if (e && e.message !== "401") toast(e.message); };
+
+  async function loadCv() {
+    if (cvs.busy) return;
+    try { cvs.st = await api("cv"); renderCv(); }
+    catch (e) { if (e.message !== "401") cvBox(cvHead + '<div class="notice">' + esc(e.message) + "</div>"); }
+  }
+
+  function renderCv() {
+    const s = cvs.st;
+    if (!s) return;
+    if (!s.crypto_ready) { cvBox(cvHead + '<p class="muted">O armazenamento seguro de currículos ainda não está configurado.</p>'); return; }
+    if (!s.consent.accepted) { renderCvConsent(); return; }
+    if (!s.has_cv || cvs.replacing) { renderCvUpload(); return; }
+    if (cvs.edit) renderCvEdit(); else renderCvView();
+  }
+
+  function renderCvConsent() {
+    cvBox(cvHead + "<h3>Use o seu currículo na entrevista</h3>" +
+      '<p class="muted">Com o seu currículo, as perguntas da simulação passam a falar do seu histórico. Leia o termo e aceite para continuar.</p>' +
+      '<p class="cv-consent">' + esc(cvs.st.consent.text) + "</p>" +
+      '<button type="button" class="btn" id="cvAccept">Li e aceito</button>');
+    $("#cvAccept").addEventListener("click", async () => {
+      try { cvs.st = await api("cv/consent", { method: "POST" }); renderCv(); } catch (e) { cvErr(e); }
+    });
+  }
+
+  function renderCvUpload() {
+    cvBox(cvHead + "<h3>" + (cvs.replacing ? "Substituir o currículo" : "Envie o seu currículo") + "</h3>" +
+      '<p class="muted">PDF ou DOCX de até 2 MB, ou cole o texto abaixo. PDF escaneado (imagem) não funciona: cole o texto. Tire do arquivo foto, documentos e dados sensíveis. Montar o perfil em inglês leva alguns segundos (limite de ' + cvs.st.per_day + " envios por dia).</p>" +
+      '<input type="file" id="cvFile" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">' +
+      '<textarea class="iv-ta" id="cvText" maxlength="30000" placeholder="Ou cole aqui o texto do currículo"></textarea>' +
+      '<div class="row"><button type="button" class="btn" id="cvSend">Enviar</button>' +
+      (cvs.replacing ? '<button type="button" class="btn ghost" id="cvCancelUp">Cancelar</button>' : "") + "</div>" +
+      '<button type="button" class="linkbtn" id="cvRevoke">Retirar o consentimento</button>');
+    $("#cvSend").addEventListener("click", cvSend);
+    $("#cvRevoke").addEventListener("click", cvRevoke);
+    const c = $("#cvCancelUp");
+    if (c) c.addEventListener("click", () => { cvs.replacing = false; renderCv(); });
+  }
+
+  async function cvSend() {
+    if (cvs.busy) return;
+    const f = $("#cvFile").files[0];
+    const text = $("#cvText").value.trim();
+    if (!f && text.length < 200) { toast("Escolha um arquivo ou cole o texto do currículo."); return; }
+    let body, query;
+    if (f) {
+      if (f.size > 2000000) { toast("Arquivo grande demais (máximo 2 MB)."); return; }
+      body = f; query = "?kind=file&name=" + encodeURIComponent(f.name);
+    } else { body = new Blob([text], { type: "text/plain" }); query = "?kind=text"; }
+    cvs.busy = true;
+    cvBox(cvHead + '<p class="muted">Lendo o currículo e montando o seu perfil em inglês… isso leva alguns segundos.</p>');
+    try {
+      const res = await fetch("api/cv" + query, { method: "POST", body, headers: { Authorization: "Bearer " + state.auth.token, "Content-Type": "application/octet-stream" } });
+      let data = null; try { data = await res.json(); } catch (e) {}
+      if (res.status === 401) { logout("Sua sessão expirou. Entre novamente."); return; }
+      if (!res.ok) throw new Error((data && data.detail) || "Erro " + res.status + ". Tente de novo.");
+      cvs.st = data; cvs.replacing = false; cvs.edit = false; toast("Currículo guardado.");
+    } catch (e) { toast(e.message); }
+    finally { cvs.busy = false; }
+    renderCv();
+  }
+
+  function renderCvView() {
+    const s = cvs.st, p = s.profile;
+    if (s.unreadable || !p) {
+      cvBox(cvHead + '<div class="notice">Não consegui abrir o currículo guardado. Apague e envie de novo.</div><button type="button" class="btn ghost" id="cvDelete">Apagar currículo</button>');
+      $("#cvDelete").addEventListener("click", cvDelete);
+      return;
+    }
+    const exp = (p.experience || []).map((e) => "<li><b>" + esc(e.title) + "</b> " + esc(e.company) + (e.period ? " · " + esc(e.period) : "") + cvUl(e.highlights) + "</li>").join("");
+    const prj = (p.projects || []).map((x) => "<li><b>" + esc(x.name) + "</b> " + esc(x.description) + ((x.stack || []).length ? ' <span class="muted">(' + esc(x.stack.join(", ")) + ")</span>" : "") + (x.result ? "<br>" + esc(x.result) : "") + "</li>").join("");
+    const when = s.updated_at ? new Date(s.updated_at).toLocaleDateString("pt-BR") : "";
+    cvBox(cvHead + "<h3>" + esc(p.headline || "Perfil em inglês") + "</h3>" +
+      '<p class="muted">Guardado em ' + when + (s.file_name ? " · " + esc(s.file_name) : "") + ". Perfil em inglês, gerado pela IA: confira e edite se algo estiver errado.</p>" +
+      (p.summary ? '<p lang="en">' + esc(p.summary) + "</p>" : "") +
+      ((p.skills || []).length ? '<div class="cv-tags">' + p.skills.map((t) => '<span class="iv-tag">' + esc(t) + "</span>").join("") + "</div>" : "") +
+      (exp ? '<span class="label">Experiência</span><ul class="iv-ul" lang="en">' + exp + "</ul>" : "") +
+      (prj ? '<span class="label">Projetos</span><ul class="iv-ul" lang="en">' + prj + "</ul>" : "") +
+      ((p.education || []).length ? '<span class="label">Formação</span>' + cvUl(p.education) : "") +
+      '<div class="row"><button type="button" class="btn" id="cvEdit">Editar perfil</button><button type="button" class="btn ghost" id="cvDownload">Baixar original</button></div>' +
+      '<div class="row"><button type="button" class="btn ghost small" id="cvReplace">Substituir</button><button type="button" class="btn ghost small" id="cvDelete">Apagar currículo</button></div>' +
+      '<button type="button" class="linkbtn" id="cvRevoke">Retirar o consentimento</button>');
+    $("#cvEdit").addEventListener("click", () => { cvs.edit = true; renderCv(); });
+    $("#cvDownload").addEventListener("click", cvDownload);
+    $("#cvReplace").addEventListener("click", () => { cvs.replacing = true; renderCv(); });
+    $("#cvDelete").addEventListener("click", cvDelete);
+    $("#cvRevoke").addEventListener("click", cvRevoke);
+  }
+
+  function renderCvEdit() {
+    const p = cvs.st.profile;
+    const items = (arr, kind, label) => (arr || []).map((x, i) => '<label class="cv-rm"><input type="checkbox" data-kind="' + kind + '" data-i="' + i + '" checked><span>' + label(x) + "</span></label>").join("");
+    const exp = items(p.experience, "exp", (e) => "<b>" + esc(e.title) + "</b> " + esc(e.company));
+    const prj = items(p.projects, "prj", (x) => "<b>" + esc(x.name) + "</b> " + esc(x.description).slice(0, 80));
+    cvBox(cvHead + "<h3>Editar perfil</h3>" +
+      '<label class="field"><span class="label">Título profissional</span><input id="cvHeadline" maxlength="120" value="' + esc(p.headline) + '"></label>' +
+      '<label class="field"><span class="label">Resumo (em inglês)</span><textarea class="iv-ta" id="cvSummary" maxlength="600">' + esc(p.summary) + "</textarea></label>" +
+      '<label class="field"><span class="label">Habilidades (separadas por vírgula)</span><textarea class="iv-ta" id="cvSkills" maxlength="1500">' + esc((p.skills || []).join(", ")) + "</textarea></label>" +
+      (exp ? '<span class="label">Experiências (desmarque para remover)</span>' + exp : "") +
+      (prj ? '<span class="label">Projetos (desmarque para remover)</span>' + prj : "") +
+      '<div class="row"><button type="button" class="btn" id="cvSave">Salvar</button><button type="button" class="btn ghost" id="cvCancel">Cancelar</button></div>');
+    $("#cvCancel").addEventListener("click", () => { cvs.edit = false; renderCv(); });
+    $("#cvSave").addEventListener("click", async () => {
+      const keep = (kind, arr) => (arr || []).filter((_, i) => { const c = $('#cvBox input[data-kind="' + kind + '"][data-i="' + i + '"]'); return !c || c.checked; });
+      const np = Object.assign({}, p, {
+        headline: $("#cvHeadline").value.trim(), summary: $("#cvSummary").value.trim(),
+        skills: $("#cvSkills").value.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 40),
+        experience: keep("exp", p.experience), projects: keep("prj", p.projects),
+      });
+      try { cvs.st = await api("cv/profile", { method: "PUT", body: JSON.stringify(np) }); cvs.edit = false; toast("Perfil salvo."); renderCv(); }
+      catch (e) { cvErr(e); }
+    });
+  }
+
+  async function cvDownload() {
+    try {
+      const res = await fetch("api/cv/file", { headers: { Authorization: "Bearer " + state.auth.token } });
+      if (res.status === 401) { logout("Sua sessão expirou. Entre novamente."); return; }
+      if (!res.ok) { let d = null; try { d = await res.json(); } catch (e) {} throw new Error((d && d.detail) || "Erro " + res.status); }
+      const blob = await res.blob();
+      const ext = { pdf: "pdf", docx: "docx", text: "txt" }[cvs.st.file_kind] || "bin";
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = "meu-curriculo." + ext;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (e) { toast(e.message); }
+  }
+
+  async function cvDelete() {
+    if (!confirm("Apagar o seu currículo guardado? Isso não pode ser desfeito.")) return;
+    try { cvs.st = await api("cv", { method: "DELETE" }); toast("Currículo apagado."); } catch (e) { cvErr(e); }
+    cvs.edit = false; cvs.replacing = false; renderCv();
+  }
+
+  async function cvRevoke() {
+    if (!confirm("Retirar o consentimento? O seu currículo guardado será apagado.")) return;
+    try { cvs.st = await api("cv/consent", { method: "DELETE" }); toast("Consentimento retirado."); } catch (e) { cvErr(e); }
+    cvs.edit = false; cvs.replacing = false; renderCv();
+  }
 
   /* ---------- simulador de entrevista (nível 5) ---------- */
   var iv = { st: null, sid: null, busy: false, visible: false, sr: null, recOn: false, userStopped: false, fatal: null,

@@ -17,7 +17,7 @@ MAX_PAGES = 10
 MIN_TEXT = 200
 MAX_TEXT = 30_000
 LLM_CHARS = 12_000
-CONSENT_VERSION = "2026-10-04"
+CONSENT_VERSION = "2026-10-05"
 CONSENT_KINDS = ("cv_storage", "cv_ai")
 CONSENT_TEXT = (
     "Para usar o seu currículo no MeuInglês: (1) guardamos o arquivo e o perfil extraído, criptografados, no nosso banco de dados; "
@@ -25,7 +25,7 @@ CONSENT_TEXT = (
     "dados fora do Brasil, para gerar o seu perfil em inglês, as perguntas da simulação e as sugestões de resposta. Antes do envio "
     "removemos e-mail, telefone, CPF, CEP, links e linhas de endereço, nascimento e estado civil, mas o seu nome e o restante do texto "
     "seguem. Tire do arquivo foto, documentos e outros dados sensíveis. Ao apagar o currículo ou a conta, removemos tudo do banco na hora; "
-    "as cópias de segurança criptografadas expiram em até 14 dias."
+    "as cópias de segurança criptografadas expiram em até 30 dias."
 )
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 MEDIA = {"pdf": ("application/pdf", "pdf"),
