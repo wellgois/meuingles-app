@@ -182,3 +182,25 @@ CREATE TABLE IF NOT EXISTS interview_turns (
     created_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (session_id, seq)
 );
+
+-- Fase A: currículo do candidato (criptografado no aplicativo) e consentimentos.
+CREATE TABLE IF NOT EXISTS user_consents (
+    user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind        text NOT NULL CHECK (kind IN ('cv_storage', 'cv_ai')),
+    version     text NOT NULL,
+    accepted_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS cv_documents (
+    user_id        uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    file_kind      text NOT NULL CHECK (file_kind IN ('pdf', 'docx', 'text')),
+    file_size      int NOT NULL,
+    file_name_enc  bytea,
+    file_enc       bytea,
+    profile_enc    bytea NOT NULL,
+    llm_in_tokens  int NOT NULL DEFAULT 0,
+    llm_out_tokens int NOT NULL DEFAULT 0
+);

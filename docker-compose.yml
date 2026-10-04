@@ -26,5 +26,7 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${APP_PORT}:8000"
+    volumes:
+      - /root/secrets/app:/run/secrets:ro
 volumes:
   pgdata:
