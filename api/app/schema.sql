@@ -204,3 +204,6 @@ CREATE TABLE IF NOT EXISTS cv_documents (
     llm_in_tokens  int NOT NULL DEFAULT 0,
     llm_out_tokens int NOT NULL DEFAULT 0
 );
+
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS suggestion text;
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS assisted boolean NOT NULL DEFAULT false;

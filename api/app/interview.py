@@ -2,6 +2,7 @@
 As transcrições ficam só no Postgres (apagadas em cascata com a conta); o lake só receberá notas e tokens."""
 import json
 import os
+import difflib
 import random
 import re
 import uuid
@@ -73,7 +74,12 @@ REPORT_SYSTEM = (
     '50-74 is understandable but vague or with clear gaps; below 50 is confusing, off topic or too short to judge. '
     'Very short answers without concrete details cannot score above 60 on "star" or "technical". '
     'In "strengths" and "improvements" refer to the questions as "na primeira pergunta", "na segunda pergunta" '
-    'or "na terceira pergunta", never as Q1, Q2 or Q3.'
+    'or "na terceira pergunta", never as Q1, Q2 or Q3. '
+    "An answer that starts with [AI-SUGGESTED TEXT] was read from an AI draft, not composed by the candidate: "
+    "do not credit it for the candidate's own vocabulary, grammar or structure (cap those three criteria at 70 for it), "
+    "mention in 'improvements' (in Brazilian Portuguese) that the answer used the AI suggestion, "
+    "and never pick it as weakest_question unless every answer has the prefix. "
+    "Never repeat the [AI-SUGGESTED TEXT] marker in any output field.
 )
 
 
@@ -242,8 +248,10 @@ def save_answer(conn, sid, user_id, text, duration_ms):
                             "ORDER BY seq LIMIT 1", (sid,)).fetchone()
         if not turn:
             raise HTTPException(409, "Todas as perguntas já foram respondidas. Finalize a simulação.")
-        conn.execute("UPDATE interview_turns SET answer = %s, duration_ms = %s WHERE session_id = %s AND seq = %s",
-                     (text, duration_ms, sid, turn["seq"]))
+        sug = turn["suggestion"]
+        assisted = bool(sug) and difflib.SequenceMatcher(None, sug.lower(), text.lower()).ratio() >= 0.75
+        conn.execute("UPDATE interview_turns SET answer = %s, duration_ms = %s, assisted = %s WHERE session_id = %s AND seq = %s",
+                     (text, duration_ms, assisted, sid, turn["seq"]))
     return session, turn
 
 
@@ -283,13 +291,14 @@ def finish_session(conn, sid, user_id, report_maker):
     turns = _turns(conn, sid)
     if not turns or _current(turns) is not None or turns[-1]["q_index"] != N_QUESTIONS - 1:
         raise HTTPException(409, "Responda a todas as perguntas antes de finalizar.")
-    report, usage = report_maker(session, turns)
+    marked = [{**t, "answer": "[AI-SUGGESTED TEXT] " + t["answer"]} if t["assisted"] else t for t in turns]
+    report, usage = report_maker(session, marked)
     if report is None:
         if usage["in"] or usage["out"]:
             conn.execute("UPDATE interview_sessions SET llm_in_tokens = llm_in_tokens + %s, "
                          "llm_out_tokens = llm_out_tokens + %s WHERE id = %s", (usage["in"], usage["out"], sid))
         raise HTTPException(502, "Não consegui gerar o relatório agora. Toque em finalizar de novo em instantes.")
-    report = {**report, "questions": session["questions"]}
+    report = {**report, "questions": session["questions"], "assisted": sum(1 for t in turns if t["assisted"])}
     with conn.transaction():
         conn.execute("UPDATE interview_sessions SET status = 'finished', finished_at = now(), overall = %s, "
                      "report = %s, llm_in_tokens = llm_in_tokens + %s, llm_out_tokens = llm_out_tokens + %s "
@@ -395,6 +404,10 @@ def register(app, db, current_user):
                 conn.execute("UPDATE interview_sessions SET llm_in_tokens = llm_in_tokens + %s, "
                              "llm_out_tokens = llm_out_tokens + %s WHERE id = %s",
                              (usage["in"], usage["out"], sid))
+        with db() as conn:
+            with conn.transaction():
+                conn.execute("UPDATE interview_turns SET suggestion = %s WHERE session_id = %s AND seq = %s",
+                             (suggestion[:1500], sid, turn["seq"]))
         return {"suggestion": suggestion[:1500]}
 
     @app.post("/api/interview/{sid}/finish")
