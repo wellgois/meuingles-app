@@ -207,3 +207,6 @@ CREATE TABLE IF NOT EXISTS cv_documents (
 
 ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS suggestion text;
 ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS assisted boolean NOT NULL DEFAULT false;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tier text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_tier text;
