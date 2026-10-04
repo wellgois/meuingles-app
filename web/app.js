@@ -732,15 +732,15 @@
     const f = $("#cvFile").files[0];
     const text = $("#cvText").value.trim();
     if (!f && text.length < 200) { toast("Escolha um arquivo ou cole o texto do currículo."); return; }
-    let body, query;
+    let body, query, fname = "";
     if (f) {
       if (f.size > 2000000) { toast("Arquivo grande demais (máximo 2 MB)."); return; }
-      body = f; query = "?kind=file&name=" + encodeURIComponent(f.name);
+      body = f; query = "?kind=file"; fname = f.name;
     } else { body = new Blob([text], { type: "text/plain" }); query = "?kind=text"; }
     cvs.busy = true;
     cvBox(cvHead + '<p class="muted">Lendo o currículo e montando o seu perfil em inglês… isso leva alguns segundos.</p>');
     try {
-      const res = await fetch("api/cv" + query, { method: "POST", body, headers: { Authorization: "Bearer " + state.auth.token, "Content-Type": "application/octet-stream" } });
+      const res = await fetch("api/cv" + query, { method: "POST", body, headers: { Authorization: "Bearer " + state.auth.token, "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(fname) } });
       let data = null; try { data = await res.json(); } catch (e) {}
       if (res.status === 401) { logout("Sua sessão expirou. Entre novamente."); return; }
       if (!res.ok) throw new Error((data && data.detail) || "Erro " + res.status + ". Tente de novo.");

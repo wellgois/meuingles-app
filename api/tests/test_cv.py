@@ -4,6 +4,7 @@ import io
 import json
 import uuid
 import zipfile
+from urllib.parse import quote
 
 import pytest
 from fastapi import HTTPException
@@ -127,8 +128,11 @@ def drop_user(uid):
         conn.execute("DELETE FROM users WHERE id = %s", (uid,))
 
 
-def upload(h, data, **params):
-    return client.post("/api/cv", params=params, content=data, headers=h)
+def upload(h, data, name="", **params):
+    headers = dict(h)
+    if name:
+        headers["X-File-Name"] = quote(name)
+    return client.post("/api/cv", params=params, content=data, headers=headers)
 
 
 @pytest.fixture()
@@ -257,3 +261,24 @@ def test_exclusao_da_conta_apaga_curriculo_e_consentimentos(env):
     with db() as conn:
         assert conn.execute("SELECT count(*) AS n FROM cv_documents WHERE user_id = %s", (uid,)).fetchone()["n"] == 0
         assert conn.execute("SELECT count(*) AS n FROM user_consents WHERE user_id = %s", (uid,)).fetchone()["n"] == 0
+
+
+def test_resposta_truncada_da_ia_vira_aviso_claro(env, monkeypatch):
+    uid, h = make_user()
+    try:
+        client.post("/api/cv/consent", headers=h)
+        monkeypatch.setattr(cv.llm, "chat", lambda *a, **k: ('{"headline": "x', {"in": 10, "out": 3500, "stop": "max_tokens"}))
+        r = upload(h, make_docx(CV_LINES), kind="file")
+        assert r.status_code == 422 and "extenso" in r.json()["detail"]
+    finally:
+        drop_user(uid)
+
+
+def test_nome_do_arquivo_so_pelo_cabecalho(env):
+    uid, h = make_user()
+    try:
+        client.post("/api/cv/consent", headers=h)
+        r = client.post("/api/cv", params={"kind": "file", "name": "da-url.docx"}, content=make_docx(CV_LINES), headers=h)
+        assert r.status_code == 200 and "file_name" not in r.json()
+    finally:
+        drop_user(uid)

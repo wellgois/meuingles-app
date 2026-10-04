@@ -109,4 +109,5 @@ def chat(system: str, user_text: str, max_tokens: int = 700, model: str | None =
         return None
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
     u = data.get("usage") or {}
-    return text, {"in": int(u.get("input_tokens", 0) or 0), "out": int(u.get("output_tokens", 0) or 0)}
+    return text, {"in": int(u.get("input_tokens", 0) or 0), "out": int(u.get("output_tokens", 0) or 0),
+                  "stop": data.get("stop_reason")}
