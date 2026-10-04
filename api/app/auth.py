@@ -104,10 +104,13 @@ def access(user) -> dict:
             "mp_status": user.get("mp_status")}
 
 
-def audio_limit_ms(plan: str) -> int | None:
+def audio_limit_ms(plan: str, tier: str | None = None) -> int | None:
     if plan == "owner":
         return None
     if plan == "active":
+        from . import plans as _plans
+        if tier in _plans.TIERS:
+            return _plans.TIERS[tier]["audio_min"] * 60000
         return MONTHLY_AUDIO_MIN * 60000
     return TRIAL_AUDIO_MIN * 60000
 
@@ -128,7 +131,7 @@ def require_practice(user) -> str:
     if not a["email_verified"]:
         raise HTTPException(403, "Confirme seu e-mail para começar a treinar. O link está na sua caixa de entrada.")
     if a["plan"] == "expired":
-        raise HTTPException(402, "Seu acesso terminou. Assine por R$ 29,90 por mês na tela inicial para continuar treinando.")
+        raise HTTPException(402, "Seu acesso terminou. Escolha um plano na aba Assinatura para continuar treinando.")
     return a["plan"]
 
 

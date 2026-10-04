@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from . import auth, content, cv, llm
+from . import auth, content, cv, llm, plans
 
 N_QUESTIONS = 3
 PASS_SCORE = 75
@@ -355,6 +355,11 @@ def register(app, db, current_user):
             if _active(conn, user["id"]) is None:
                 if plan != "owner" and used_today(conn, user["id"]) >= PER_DAY:
                     raise HTTPException(429, f"Você já fez {PER_DAY} simulações nas últimas 24 horas. Volte amanhã.")
+                if plan == "active" and user.get("tier") in plans.TIERS:
+                    n_m = conn.execute("SELECT count(*) AS n FROM interview_sessions WHERE user_id = %s "
+                                       "AND created_at >= date_trunc('month', now())", (user["id"],)).fetchone()["n"]
+                    if n_m >= plans.TIERS[user["tier"]]["sims"]:
+                        raise HTTPException(429, "Você usou as " + str(plans.TIERS[user["tier"]]["sims"]) + " simulações do seu plano neste mês.")
                 start_session(conn, user)
             return state(conn, user)
 

@@ -9,12 +9,21 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-from . import mailer
+from . import mailer, plans
 
 log = logging.getLogger("meuingles.billing")
 API = os.environ.get("MP_API_BASE", "https://api.mercadopago.com")
 PRICE = float(os.environ.get("SUB_PRICE", "29.90"))
 GRACE = timedelta(days=3)
+
+
+def _plan_blurb(user) -> str:
+    t = plans.TIERS.get(user.get("pending_tier") or user.get("tier") or "")
+    if not t:
+        return f"São R$ {PRICE:.2f} por mês".replace(".", ",") + ", com até 300 minutos de pronúncia avaliada. "
+    card = f"{t['card']:.2f}".replace(".", ",")
+    return (f"Plano {t['name']}: R$ {card} por mês, com {t['sims']} simulações e até "
+            f"{t['audio_min']} minutos de pronúncia avaliada por mês. ")
 
 
 def configured() -> bool:
@@ -44,13 +53,13 @@ def _start_date(user) -> dict:
     return {}
 
 
-def create(user, payer_email: str) -> dict:
+def create(user, payer_email: str, tier: str | None = None) -> dict:
     return _call("POST", "/preapproval", {
-        "reason": "MeuInglês · assinatura mensal",
+        "reason": "MeuInglês · assinatura mensal" + (" · " + plans.TIERS[tier]["name"] if tier else ""),
         "external_reference": str(user["id"]),
         "payer_email": payer_email,
         "auto_recurring": {"frequency": 1, "frequency_type": "months",
-                           "transaction_amount": PRICE, "currency_id": "BRL", **_start_date(user)},
+                           "transaction_amount": plans.TIERS[tier]["card"] if tier else PRICE, "currency_id": "BRL", **_start_date(user)},
         "back_url": mailer.base_url() + "app/?assinatura=1",
         "status": "pending",
     })
@@ -86,13 +95,13 @@ def apply(conn, pre: dict) -> str | None:
         cur = user.get("paid_until")
         if cur and old_plan in ("active", "canceled") and cur > paid_until:
             paid_until = cur  # não encurta acesso já pago (ex.: Pix) ao assinar no cartão
-        conn.execute("""UPDATE users SET plan = 'active', mp_preapproval_id = %s, mp_status = %s, paid_until = %s,
+        conn.execute("""UPDATE users SET plan = 'active', tier = coalesce(pending_tier, tier), mp_preapproval_id = %s, mp_status = %s, paid_until = %s,
                         sub_started_at = coalesce(sub_started_at, now()) WHERE id = %s""",
                      (pre["id"], status, paid_until, user["id"]))
         if old_plan != "active":
             mailer.send(user["email"], "Sua assinatura do MeuInglês está ativa", [
                 f"Oi, {user['name'].split(' ')[0]}! Recebemos a confirmação do Mercado Pago e sua assinatura está ativa.",
-                f"São R$ {PRICE:.2f} por mês".replace(".", ",") + ", com até 300 minutos de pronúncia avaliada. "
+                _plan_blurb(user) +
                 "Você pode cancelar quando quiser, no próprio app."], ("Treinar agora", mailer.base_url() + "app/"))
             return "activated"
     elif status in ("cancelled", "paused"):
@@ -160,16 +169,17 @@ def _post_idem(path: str, body: dict, key: str) -> dict:
         raise RuntimeError(f"Mercado Pago respondeu {e.code}: {detail}") from None
 
 
-def pix_create(user) -> dict:
+def pix_create(user, tier: str | None = None) -> dict:
     """Cria um Pix de PRICE no Mercado Pago e devolve o QR Code e o copia e cola."""
     import uuid
+    amount = plans.TIERS[tier]["pix"] if tier else PRICE
     exp = (datetime.now(BRT) + timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%S.000-03:00")
     pay = _post_idem("/v1/payments", {
-        "transaction_amount": PRICE,
-        "description": "MeuInglês · 30 dias de acesso (Pix)",
+        "transaction_amount": amount,
+        "description": "MeuInglês · 30 dias de acesso (Pix)" + (" · " + plans.TIERS[tier]["name"] if tier else ""),
         "payment_method_id": "pix",
         "payer": {"email": user["email"]},
-        "external_reference": PIX_REF + str(user["id"]),
+        "external_reference": PIX_REF + str(user["id"]) + (":" + tier if tier else ""),
         "notification_url": mailer.base_url() + "api/billing/webhook",
         "date_of_expiration": exp,
     }, str(uuid.uuid4()))
@@ -177,7 +187,7 @@ def pix_create(user) -> dict:
     if not td.get("qr_code"):
         raise RuntimeError("Mercado Pago não devolveu o QR Code do Pix")
     return {"payment_id": str(pay["id"]), "qr_code": td["qr_code"],
-            "qr_base64": td.get("qr_code_base64"), "expires": exp, "amount": PRICE}
+            "qr_base64": td.get("qr_code_base64"), "expires": exp, "amount": amount}
 
 
 def pix_confirm(db, payment_id: str, only_user: str | None = None) -> dict:
@@ -189,13 +199,15 @@ def pix_confirm(db, payment_id: str, only_user: str | None = None) -> dict:
     ref = str(pay.get("external_reference") or "")
     if not ref.startswith(PIX_REF):
         return {"status": None}
-    uid = ref[len(PIX_REF):]
+    uid, _, tier = ref[len(PIX_REF):].partition(":")
+    tier = tier if tier in plans.TIERS else None
+    price = plans.TIERS[tier]["pix"] if tier else PRICE
     if only_user is not None and uid != only_user:
         return {"status": None}
     status = pay.get("status")
     if status != "approved":
         return {"status": status}
-    if pay.get("payment_method_id") != "pix" or abs(float(pay.get("transaction_amount") or 0) - PRICE) > 0.01:
+    if pay.get("payment_method_id") != "pix" or abs(float(pay.get("transaction_amount") or 0) - price) > 0.01:
         return {"status": "invalid"}
     credited = False
     new_until = None
@@ -207,7 +219,7 @@ def pix_confirm(db, payment_id: str, only_user: str | None = None) -> dict:
             return {"status": status}
         ins = conn.execute("""INSERT INTO pix_payments (payment_id, user_id, amount) VALUES (%s, %s, %s)
                               ON CONFLICT (payment_id) DO NOTHING RETURNING payment_id""",
-                           (payment_id, uid, PRICE)).fetchone()
+                           (payment_id, uid, price)).fetchone()
         if ins:
             now = datetime.now(timezone.utc)
             base = now
@@ -218,9 +230,9 @@ def pix_confirm(db, payment_id: str, only_user: str | None = None) -> dict:
             if user["plan"] == "trial" and ends and ends > base:
                 base = ends
             new_until = base + timedelta(days=PIX_DAYS)
-            conn.execute("""UPDATE users SET plan = 'active', paid_until = %s,
+            conn.execute("""UPDATE users SET plan = 'active', tier = coalesce(%s, tier), paid_until = %s,
                             sub_started_at = coalesce(sub_started_at, now()) WHERE id = %s""",
-                         (new_until, user["id"]))
+                         (tier, new_until, user["id"]))
             credited = True
     if credited:
         try:

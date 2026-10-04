@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from . import auth, azure_speech, billing, content, jobs, leads, llm, mailer, traffic, costs, interview, cv
+from . import auth, azure_speech, billing, content, jobs, leads, llm, mailer, traffic, costs, interview, cv, plans
 from .scoring import SHORT, score_open, score_repeat
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://postgres@localhost/meuingles")
@@ -223,12 +223,17 @@ def reset(body: Reset):
 
 def account_info(conn, user) -> dict:
     a = auth.access(user)
-    limit = auth.audio_limit_ms(a["plan"])
+    limit = auth.audio_limit_ms(a["plan"], user.get("tier"))
     used = auth.audio_used_ms(conn, user, a["plan"])
     a.update({"name": user["name"], "email": user["email"], "wants_subscription": user["wants_subscription_at"] is not None,
               "track": user.get("target_level"), "tracks": content.TRACKS,
               "billing": billing.configured(), "price": billing.PRICE, "mp_payer_email": user.get("mp_payer_email"),
               "audio_used_min": round(used / 60000), "audio_limit_min": None if limit is None else round(limit / 60000)})
+    sims_used = conn.execute("SELECT count(*) AS n FROM interview_sessions WHERE user_id = %s "
+                             "AND created_at >= date_trunc('month', now())", (user["id"],)).fetchone()["n"]
+    t = plans.TIERS.get(user.get("tier"))
+    a.update({"tier": user.get("tier"), "tiers": plans.public(), "sims_used": sims_used,
+              "sims_limit": t["sims"] if t and a["plan"] == "active" else None})
     return a
 
 
@@ -262,6 +267,7 @@ def set_track(body: TrackIn, user=Depends(current_user)):
 
 class SubscribeIn(BaseModel):
     payer_email: str = Field(max_length=200)
+    tier: str | None = Field(default=None, max_length=20)
 
 
 class SyncIn(BaseModel):
@@ -275,6 +281,8 @@ def _mp_error(e: Exception):
 @app.post("/api/billing/subscribe")
 def subscribe(body: SubscribeIn, user=Depends(current_user)):
     auth.rate_limit("subscribe:" + str(user["id"]), 6, 3600)
+    if body.tier not in plans.TIERS:
+        raise HTTPException(422, "Escolha um plano.")
     if not billing.configured():
         raise HTTPException(503, "A assinatura ainda não está disponível.")
     if user["plan"] == "owner":
@@ -287,12 +295,12 @@ def subscribe(body: SubscribeIn, user=Depends(current_user)):
     if not auth.valid_email(payer):
         raise HTTPException(422, "Digite o e-mail da sua conta do Mercado Pago.")
     try:
-        pre = billing.create(user, payer)
+        pre = billing.create(user, payer, body.tier)
     except Exception as e:  # noqa: BLE001
         _mp_error(e)
     with db() as conn:
-        conn.execute("""UPDATE users SET mp_preapproval_id = %s, mp_status = %s, mp_payer_email = %s, mp_created_at = now()
-                        WHERE id = %s""", (pre["id"], pre.get("status", "pending"), payer, user["id"]))
+        conn.execute("""UPDATE users SET mp_preapproval_id = %s, mp_status = %s, mp_payer_email = %s, pending_tier = %s, mp_created_at = now()
+                        WHERE id = %s""", (pre["id"], pre.get("status", "pending"), payer, body.tier, user["id"]))
     return {"url": pre["init_point"]}
 
 
@@ -329,13 +337,20 @@ def billing_cancel(user=Depends(current_user)):
     return {"status": pre.get("status")}
 
 
+class PixIn(BaseModel):
+    tier: str | None = Field(default=None, max_length=20)
+
+
 class PixCheckIn(BaseModel):
     payment_id: str = Field(max_length=40)
 
 
 @app.post("/api/billing/pix")
-def pix_create(user=Depends(current_user)):
+def pix_create(body: PixIn | None = None, user=Depends(current_user)):
     auth.rate_limit("pix:" + str(user["id"]), 10, 3600)
+    tier = body.tier if body else None
+    if tier not in plans.TIERS:
+        raise HTTPException(422, "Escolha um plano.")
     if not billing.configured():
         raise HTTPException(503, "O pagamento ainda não está disponível.")
     if user["plan"] == "owner":
@@ -345,7 +360,7 @@ def pix_create(user=Depends(current_user)):
     if auth.access(user)["plan"] == "active" and user.get("mp_status") == "authorized":
         raise HTTPException(400, "Sua assinatura no cartão já está ativa.")
     try:
-        return billing.pix_create(user)
+        return billing.pix_create(user, tier)
     except Exception as e:  # noqa: BLE001
         _mp_error(e)
 
@@ -569,7 +584,7 @@ async def create_attempt_audio(request: Request, item_id: str, duration_ms: int 
     if len(wav) < 1000 or len(wav) > 4_000_000 or wav[:4] != b"RIFF":
         raise HTTPException(422, "Gravação inválida. Tente de novo.")
     audio_ms = (len(wav) - 44) // 32
-    limit = auth.audio_limit_ms(plan)
+    limit = auth.audio_limit_ms(plan, user.get("tier"))
     if limit is not None:
         with db() as conn:
             used = auth.audio_used_ms(conn, user, plan)
