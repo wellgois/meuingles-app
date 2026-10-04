@@ -79,7 +79,7 @@ REPORT_SYSTEM = (
     "do not credit it for the candidate's own vocabulary, grammar or structure (cap those three criteria at 70 for it), "
     "mention in 'improvements' (in Brazilian Portuguese) that the answer used the AI suggestion, "
     "and never pick it as weakest_question unless every answer has the prefix. "
-    "Never repeat the [AI-SUGGESTED TEXT] marker in any output field.
+    "Never repeat the [AI-SUGGESTED TEXT] marker in any output field."
 )
 
 
