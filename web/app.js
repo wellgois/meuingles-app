@@ -899,13 +899,14 @@
     const tag = p.kind === "followup" ? "Pergunta de acompanhamento" : (IV_KIND[p.question_kind] || "Pergunta");
     ivBox('<div class="row"><span class="label">Pergunta ' + (p.q_index + 1) + " de " + p.total + '</span><span class="iv-tag">' + esc(tag) + "</span></div>" +
       '<p class="iv-q" lang="en">' + esc(p.prompt) + "</p>" +
-      '<div class="row-tight"><button type="button" class="btn ghost small" id="ivListen">Ouvir a pergunta</button></div>' +
+      '<div class="row-tight"><button type="button" class="btn ghost small" id="ivListen">Ouvir a pergunta</button><button type="button" class="btn ghost small" id="ivSuggest">Sugestão da IA</button></div>' +
       '<textarea class="iv-ta" id="ivText" lang="en" spellcheck="false" maxlength="4000" placeholder="Grave a resposta com o microfone ou digite aqui. Você pode editar antes de enviar."></textarea>' +
       '<div class="row"><button type="button" class="btn" id="ivRec">Gravar resposta</button><button type="button" class="btn ghost" id="ivSend">Enviar resposta</button></div>' +
       '<p class="muted" id="ivNote">' + (SR ? "Toque em gravar, responda em inglês e toque de novo para parar." : "Este navegador não reconhece fala: digite a resposta ou use o Google Chrome.") + "</p>" +
       '<button type="button" class="linkbtn" id="ivAbandon">Abandonar simulação</button>');
     $("#ivText").value = iv.draft || "";
     $("#ivListen").addEventListener("click", () => say(p.prompt));
+    $("#ivSuggest").addEventListener("click", ivSuggest);
     $("#ivRec").addEventListener("click", () => (iv.recOn ? ivStopRec() : ivStartRec()));
     $("#ivSend").addEventListener("click", ivSend);
     $("#ivAbandon").addEventListener("click", ivAbandon);
@@ -964,6 +965,21 @@
     if (b) { b.textContent = "Gravar resposta"; b.classList.remove("rec-on"); }
     if (n) n.textContent = iv.fatal || "Revise o texto, se quiser, e envie a resposta.";
     if (iv.fatal) toast(iv.fatal);
+  }
+
+  async function ivSuggest() {
+    if (iv.busy || iv.recOn) return;
+    const b = $("#ivSuggest"), ta = $("#ivText"), n = $("#ivNote");
+    if (ta.value.trim() && !confirm("Substituir o texto do campo pela sugestão da IA?")) return;
+    iv.busy = true;
+    if (b) { b.disabled = true; b.textContent = "Gerando…"; }
+    try {
+      const r = await api("interview/" + iv.st.active.session_id + "/suggest", { method: "POST" });
+      ta.value = r.suggestion; iv.draft = r.suggestion;
+      if (n) n.textContent = "Sugestão da IA: leia em voz alta, adapte com suas palavras e envie.";
+    } catch (e) { if (e.message !== "401") toast(e.message); }
+    iv.busy = false;
+    if (b) { b.disabled = false; b.textContent = "Sugestão da IA"; }
   }
 
   async function ivSend() {
