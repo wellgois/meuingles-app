@@ -268,3 +268,25 @@ def test_temperatura_do_relatorio_e_baixa(monkeypatch):
     interview.make_report(session, turns)
     interview.make_followup(session, turns[0], "a")
     assert seen[True] <= 0.3 and seen[False] > seen[True]
+
+
+def test_custos_do_mes_incluem_a_simulacao(fake_llm):
+    from app import costs
+    uid, h = make_user()
+    try:
+        with db() as conn:
+            conn.execute("UPDATE users SET name = %s WHERE id = %s", (f"iv-{uid}", uid))
+        sid = start(h).json()["active"]["session_id"]
+        for _ in range(6):
+            if answer(h, sid).json().get("ready"):
+                break
+        assert client.post(f"/api/interview/{sid}/finish", headers=h).status_code == 200
+        with db() as conn:
+            rows = conn.execute(costs.SQL, {"d_in": 800, "d_out": 500}).fetchall()
+        mine = [r for r in rows if r["name"] == f"iv-{uid}"]
+        assert len(mine) == 1
+        assert (mine[0]["iv_sessions"], mine[0]["iv_in"], mine[0]["iv_out"]) == (1, 800, 360)
+        az, llm = costs._cost(mine[0])
+        assert az == 0 and llm == pytest.approx((800 * costs.LLM_IN + 360 * costs.LLM_OUT) / 1e6)
+    finally:
+        drop_user(uid)

@@ -389,7 +389,7 @@
       const segName = (s) => aEsc(SEG_BADGE[s] || s);
       let h = '<div class="block"><span class="label">Custos do mês (' + aEsc(c.month) + ')</span><div class="stats stats-admin">' +
         cell(brl(T.total_brl), "custo total", usd(T.total_usd)) + cell(brl(T.azure_brl), "áudio avaliado (Azure)", (T.azure_h * 60).toFixed(1).replace(".", ",") + " min") +
-        cell(brl(T.llm_brl), "correções com IA", T.llm_calls + " chamadas") +
+        cell(brl(T.llm_brl), "correções e simulações com IA", T.llm_calls + " correções · " + (T.interviews || 0) + " simulações") +
         cell(brl(T.avg_brl), "custo por usuário ativo", T.active_users + " ativos") +
         cell(brl(c.unconverted_brl), "gasto com quem ainda não assinou") +
         cell(P.margin_pct == null ? "–" : P.margin_pct + "%", "margem dos assinantes", brl(P.margin_brl) + " no mês") + "</div>" +

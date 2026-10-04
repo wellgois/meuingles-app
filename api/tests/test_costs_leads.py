@@ -26,3 +26,9 @@ def test_filtros_da_api_batem_com_o_painel():
     assert block, "SEG_LABEL não encontrado em web/app.js"
     keys = set(re.findall(r"(\w+):\s*\"", block.group(1)))
     assert keys == set(leads.SEGMENTS)
+
+
+def test_custo_inclui_tokens_de_entrevista():
+    r = {"az_h": 0, "tok_in": 0, "tok_out": 0, "iv_in": 1_000_000, "iv_out": 1_000_000}
+    az, llm = costs._cost(r)
+    assert az == 0 and llm == pytest.approx(costs.LLM_IN + costs.LLM_OUT)

@@ -22,22 +22,33 @@ WITH a AS (
          count(*) FILTER (WHERE used_llm AND raw->'result'->'llm'->'usage' IS NOT NULL) AS llm_measured,
          coalesce(sum(CASE WHEN used_llm THEN coalesce((raw->'result'->'llm'->'usage'->>'in')::numeric, %(d_in)s) END), 0) AS tok_in,
          coalesce(sum(CASE WHEN used_llm THEN coalesce((raw->'result'->'llm'->'usage'->>'out')::numeric, %(d_out)s) END), 0) AS tok_out
-  FROM attempts WHERE created_at >= date_trunc('month', now()) GROUP BY user_id)
+  FROM attempts WHERE created_at >= date_trunc('month', now()) GROUP BY user_id),
+iv AS (
+  SELECT user_id, count(*) AS iv_sessions,
+         coalesce(sum(llm_in_tokens), 0) AS iv_in, coalesce(sum(llm_out_tokens), 0) AS iv_out
+  FROM interview_sessions WHERE created_at >= date_trunc('month', now()) GROUP BY user_id),
+k AS (SELECT user_id FROM a UNION SELECT user_id FROM iv)
 SELECT u.name, u.plan,
        (u.plan IN ('active', 'canceled') OR u.paid_until IS NOT NULL) AS converted,
        CASE WHEN u.plan IN ('active', 'canceled') AND u.paid_until > now() THEN 'paying'
             WHEN u.plan IN ('active', 'canceled') THEN 'churned'
             WHEN u.plan = 'trial' AND (u.trial_ends_at IS NULL OR u.trial_ends_at > now()) THEN 'trial'
             ELSE 'expired' END AS segment,
-       a.attempts, a.az_h, a.llm_calls, a.llm_measured, a.tok_in, a.tok_out
-FROM a JOIN users u ON u.id = a.user_id
+       coalesce(a.attempts, 0) AS attempts, coalesce(a.az_h, 0) AS az_h, coalesce(a.llm_calls, 0) AS llm_calls,
+       coalesce(a.llm_measured, 0) AS llm_measured, coalesce(a.tok_in, 0) AS tok_in, coalesce(a.tok_out, 0) AS tok_out,
+       coalesce(iv.iv_sessions, 0) AS iv_sessions, coalesce(iv.iv_in, 0) AS iv_in, coalesce(iv.iv_out, 0) AS iv_out
+FROM k JOIN users u ON u.id = k.user_id
+LEFT JOIN a ON a.user_id = k.user_id
+LEFT JOIN iv ON iv.user_id = k.user_id
 WHERE u.plan <> 'owner'
 """
 
 
 def _cost(r):
     az = float(r["az_h"]) * AZURE_USD_H
-    llm = (float(r["tok_in"]) * LLM_IN + float(r["tok_out"]) * LLM_OUT) / 1e6
+    tin = float(r["tok_in"]) + float(r.get("iv_in", 0) or 0)
+    tout = float(r["tok_out"]) + float(r.get("iv_out", 0) or 0)
+    llm = (tin * LLM_IN + tout * LLM_OUT) / 1e6
     return az, llm
 
 
@@ -57,13 +68,14 @@ def register(app, db, current_user):
         brl = lambda usd: round(usd * USD_BRL, 2)
         segs, top = {}, []
         az_t = llm_t = az_h = unconv = 0.0
-        calls = measured = 0
+        calls = measured = sessions = 0
         for r in rows:
             az, llm = _cost(r)
             az_t += az
             llm_t += llm
             az_h += float(r["az_h"])
             calls += int(r["llm_calls"])
+            sessions += int(r.get("iv_sessions", 0) or 0)
             measured += int(r["llm_measured"])
             if not r["converted"]:
                 unconv += az + llm
@@ -91,7 +103,7 @@ def register(app, db, current_user):
             "month": month,
             "rates": {"azure_h": AZURE_USD_H, "llm_in": LLM_IN, "llm_out": LLM_OUT, "usd_brl": USD_BRL, "fee_pct": FEE_PCT},
             "totals": {"total_usd": round(total, 2), "total_brl": brl(total), "azure_brl": brl(az_t), "llm_brl": brl(llm_t),
-                       "azure_h": round(az_h, 4), "llm_calls": calls, "active_users": n,
+                       "azure_h": round(az_h, 4), "llm_calls": calls, "interviews": sessions, "active_users": n,
                        "avg_brl": brl(total / n) if n else 0,
                        "measured_pct": round(100 * measured / calls) if calls else None},
             "paying": {"users": paying_now, "net_per_user_brl": round(net_user, 2), "net_brl": round(net, 2),
