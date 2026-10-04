@@ -298,7 +298,7 @@ def finish_session(conn, sid, user_id, report_maker):
             conn.execute("UPDATE interview_sessions SET llm_in_tokens = llm_in_tokens + %s, "
                          "llm_out_tokens = llm_out_tokens + %s WHERE id = %s", (usage["in"], usage["out"], sid))
         raise HTTPException(502, "Não consegui gerar o relatório agora. Toque em finalizar de novo em instantes.")
-    report = {**report, "questions": session["questions"], "assisted": sum(1 for t in turns if t["assisted"])}
+    report = {**report, "questions": session["questions"], "assisted": sum(1 for t in turns if t["assisted"]), "answered": len(turns)}
     with conn.transaction():
         conn.execute("UPDATE interview_sessions SET status = 'finished', finished_at = now(), overall = %s, "
                      "report = %s, llm_in_tokens = llm_in_tokens + %s, llm_out_tokens = llm_out_tokens + %s "
