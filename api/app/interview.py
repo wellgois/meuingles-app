@@ -360,6 +360,11 @@ def register(app, db, current_user):
                                        "AND created_at >= date_trunc('month', now())", (user["id"],)).fetchone()["n"]
                     if n_m >= plans.TIERS[user["tier"]]["sims"]:
                         raise HTTPException(429, "Você usou as " + str(plans.TIERS[user["tier"]]["sims"]) + " simulações do seu plano neste mês.")
+                if plan == "trial" and user.get("promo_max_sims"):
+                    n_t = conn.execute("SELECT count(*) AS n FROM interview_sessions WHERE user_id = %s",
+                                       (user["id"],)).fetchone()["n"]
+                    if n_t >= int(user["promo_max_sims"]):
+                        raise HTTPException(429, "Você usou as " + str(user["promo_max_sims"]) + " simulações do seu piloto.")
                 start_session(conn, user)
             return state(conn, user)
 

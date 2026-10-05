@@ -144,7 +144,7 @@ def signup(body: SignUp, request: Request):
                 promo_row = conn.execute(
                     "UPDATE promo_codes SET used_count = used_count + 1 WHERE code = %s AND active "
                     "AND (expires_at IS NULL OR expires_at > now()) AND (max_uses IS NULL OR used_count < max_uses) "
-                    "RETURNING code, trial_days", (promo,)).fetchone()
+                    "RETURNING code, trial_days, audio_min, max_sims", (promo,)).fetchone()
                 if not promo_row:
                     raise HTTPException(422, "Código promocional inválido, expirado ou esgotado.")
             trial_days = int(promo_row["trial_days"]) if promo_row else auth.TRIAL_DAYS
@@ -157,7 +157,8 @@ def signup(body: SignUp, request: Request):
             conn.execute("UPDATE users SET signup_source = %s, signup_campaign = %s, signup_content = %s, signup_vid = %s WHERE id = %s",
                          (s_src, s_camp, s_cont, s_vid, uid))
             if promo_row:
-                conn.execute("UPDATE users SET promo_code = %s WHERE id = %s", (promo_row["code"], uid))
+                conn.execute("UPDATE users SET promo_code = %s, promo_audio_min = %s, promo_max_sims = %s WHERE id = %s",
+                             (promo_row["code"], promo_row["audio_min"], promo_row["max_sims"], uid))
             tok = open_session(conn, uid)
         sent = send_verify(conn, user)
     return {"token": tok, "email_sent": sent}
@@ -236,7 +237,7 @@ def reset(body: Reset):
 
 def account_info(conn, user) -> dict:
     a = auth.access(user)
-    limit = auth.audio_limit_ms(a["plan"], user.get("tier"))
+    limit = auth.audio_limit_ms(a["plan"], user.get("tier"), user)
     used = auth.audio_used_ms(conn, user, a["plan"])
     a.update({"name": user["name"], "email": user["email"], "wants_subscription": user["wants_subscription_at"] is not None,
               "track": user.get("target_level"), "tracks": content.TRACKS,
@@ -597,7 +598,7 @@ async def create_attempt_audio(request: Request, item_id: str, duration_ms: int 
     if len(wav) < 1000 or len(wav) > 4_000_000 or wav[:4] != b"RIFF":
         raise HTTPException(422, "Gravação inválida. Tente de novo.")
     audio_ms = (len(wav) - 44) // 32
-    limit = auth.audio_limit_ms(plan, user.get("tier"))
+    limit = auth.audio_limit_ms(plan, user.get("tier"), user)
     if limit is not None:
         with db() as conn:
             used = auth.audio_used_ms(conn, user, plan)

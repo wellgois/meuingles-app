@@ -104,7 +104,7 @@ def access(user) -> dict:
             "mp_status": user.get("mp_status")}
 
 
-def audio_limit_ms(plan: str, tier: str | None = None) -> int | None:
+def audio_limit_ms(plan: str, tier: str | None = None, user=None) -> int | None:
     if plan == "owner":
         return None
     if plan == "active":
@@ -112,6 +112,8 @@ def audio_limit_ms(plan: str, tier: str | None = None) -> int | None:
         if tier in _plans.TIERS:
             return _plans.TIERS[tier]["audio_min"] * 60000
         return MONTHLY_AUDIO_MIN * 60000
+    if user is not None and user.get("promo_audio_min"):
+        return int(user["promo_audio_min"]) * 60000
     return TRIAL_AUDIO_MIN * 60000
 
 

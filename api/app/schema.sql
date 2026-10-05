@@ -221,3 +221,7 @@ CREATE TABLE IF NOT EXISTS promo_codes (
     label       text,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS audio_min int;
+ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS max_sims int;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_audio_min int;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_max_sims int;
