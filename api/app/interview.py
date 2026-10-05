@@ -208,7 +208,7 @@ def _current(turns):
 
 
 def _view_turn(session, turn):
-    return {"session_id": str(session["id"]), "seq": turn["seq"], "q_index": turn["q_index"], "total": N_QUESTIONS,
+    return {"session_id": str(session["id"]), "seq": turn["seq"], "q_index": turn["q_index"], "total": N_QUESTIONS, "total_turns": N_QUESTIONS * (2 if FOLLOWUPS else 1),
             "kind": turn["kind"], "question_kind": session["questions"][turn["q_index"]]["kind"],
             "prompt": turn["prompt"]}
 

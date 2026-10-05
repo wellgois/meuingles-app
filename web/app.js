@@ -946,7 +946,7 @@
     const p = iv.st.active.prompt;
     if (iv.seq !== p.seq || iv.sid !== iv.st.active.session_id) { iv.seq = p.seq; iv.sid = iv.st.active.session_id; iv.dur = 0; iv.draft = ""; }
     const tag = p.kind === "followup" ? "Pergunta de acompanhamento" : (IV_KIND[p.question_kind] || "Pergunta");
-    ivBox('<div class="row"><span class="label">Pergunta ' + (p.q_index + 1) + " de " + p.total + '</span><span class="iv-tag">' + esc(tag) + "</span></div>" +
+    ivBox('<div class="row"><span class="label">Pergunta ' + (p.total_turns ? (iv.st.active.answered || 0) + 1 : p.q_index + 1) + " de " + (p.total_turns || p.total) + '</span><span class="iv-tag">' + esc(tag) + "</span></div>" +
       '<p class="iv-q" lang="en">' + esc(p.prompt) + "</p>" +
       '<div class="row-tight"><button type="button" class="btn ghost small" id="ivListen">Ouvir a pergunta</button><button type="button" class="btn ghost small" id="ivSuggest">Sugestão da IA</button></div>' +
       '<textarea class="iv-ta" id="ivText" lang="en" spellcheck="false" maxlength="4000" placeholder="Grave a resposta com o microfone ou digite aqui. Você pode editar antes de enviar."></textarea>' +
