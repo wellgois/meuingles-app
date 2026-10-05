@@ -79,6 +79,7 @@
     $("#fName").hidden = mode !== "signup";
     $("#fTerms").hidden = mode !== "signup";
     $("#fTrack").hidden = mode !== "signup";
+    $("#fPromo").hidden = mode !== "signup";
     $("#fEmail").hidden = mode === "reset";
     $("#fPass").hidden = mode === "forgot";
     $("#passLabel").textContent = mode === "login" ? "Senha" : mode === "reset" ? "Nova senha (mínimo 8 caracteres)" : "Senha (mínimo 8 caracteres)";
@@ -124,7 +125,7 @@
         return;
       }
       const path = { signup: "auth/signup", login: "auth/login", reset: "auth/reset" }[authMode];
-      const body = authMode === "signup" ? { name, email, password, accept_terms: true, track, ...(window.miAttr ? window.miAttr() : {}) }
+      const body = authMode === "signup" ? { name, email, password, accept_terms: true, track, promo: ($("#promoInput").value.trim() || undefined), ...(window.miAttr ? window.miAttr() : {}) }
         : authMode === "reset" ? { token: resetToken, password } : { email, password };
       const r = await api(path, { method: "POST", body: JSON.stringify(body) });
       state.auth = { token: r.token }; saveAuth(state.auth);

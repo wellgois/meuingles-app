@@ -210,3 +210,14 @@ ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS assisted boolean NOT NULL D
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS tier text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_tier text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_code text;
+CREATE TABLE IF NOT EXISTS promo_codes (
+    code        text PRIMARY KEY,
+    trial_days  int NOT NULL CHECK (trial_days BETWEEN 1 AND 90),
+    max_uses    int,
+    used_count  int NOT NULL DEFAULT 0,
+    expires_at  timestamptz,
+    active      boolean NOT NULL DEFAULT true,
+    label       text,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);

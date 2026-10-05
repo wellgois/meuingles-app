@@ -73,6 +73,7 @@ def health():
 # ---------- contas ----------
 
 class SignUp(BaseModel):
+    promo: str | None = Field(default=None, max_length=40)
     name: str = Field(min_length=1, max_length=60)
     email: str = Field(max_length=200)
     password: str = Field(min_length=8, max_length=200)
@@ -116,7 +117,7 @@ def send_verify(conn, user) -> bool:
     conn.execute("INSERT INTO email_tokens (token_hash, user_id, kind, expires_at) VALUES (%s, %s, 'verify', now() + interval '1 day')",
                  (h, user["id"]))
     return mailer.send(user["email"], "Confirme seu e-mail no MeuInglês", [
-        f"Oi, {user['name'].split(' ')[0]}! Falta só confirmar seu e-mail para começar o teste grátis de 7 dias.",
+        f"Oi, {user['name'].split(' ')[0]}! Falta só confirmar seu e-mail para começar o teste grátis de {auth.access(user)['days_left'] or auth.TRIAL_DAYS} dias.",
         "O link vale por 24 horas."], ("Confirmar e-mail", mailer.base_url() + "api/auth/verify?token=" + tok))
 
 
@@ -126,7 +127,8 @@ def client_ip(request: Request) -> str:
 
 @app.post("/api/auth/signup")
 def signup(body: SignUp, request: Request):
-    auth.rate_limit("signup:" + client_ip(request), 5, 3600)
+    promo = (body.promo or "").strip().lower()
+    auth.rate_limit(("signup-promo:" if promo else "signup:") + client_ip(request), 40 if promo else 5, 3600)
     email = body.email.strip().lower()
     if not auth.valid_email(email):
         raise HTTPException(422, "Digite um e-mail válido.")
@@ -137,14 +139,25 @@ def signup(body: SignUp, request: Request):
         with conn.transaction():
             if conn.execute("SELECT 1 FROM users WHERE lower(email) = %s", (email,)).fetchone():
                 raise HTTPException(409, "Já existe uma conta com esse e-mail. Entre ou use 'Esqueci minha senha'.")
+            promo_row = None
+            if promo:
+                promo_row = conn.execute(
+                    "UPDATE promo_codes SET used_count = used_count + 1 WHERE code = %s AND active "
+                    "AND (expires_at IS NULL OR expires_at > now()) AND (max_uses IS NULL OR used_count < max_uses) "
+                    "RETURNING code, trial_days", (promo,)).fetchone()
+                if not promo_row:
+                    raise HTTPException(422, "Código promocional inválido, expirado ou esgotado.")
+            trial_days = int(promo_row["trial_days"]) if promo_row else auth.TRIAL_DAYS
             uid = uuid.uuid4()
             user = conn.execute(
                 f"""INSERT INTO users (id, name, email, pass_hash, plan, trial_ends_at, terms_accepted_at, target_level)
-                    VALUES (%s, %s, %s, %s, 'trial', now() + interval '{auth.TRIAL_DAYS} days', now(), %s) RETURNING *""",
+                    VALUES (%s, %s, %s, %s, 'trial', now() + interval '{trial_days} days', now(), %s) RETURNING *""",
                 (uid, body.name.strip(), email, auth.hash_password(body.password), track)).fetchone()
             s_src, s_camp, s_cont, s_vid = traffic.signup_attribution(body)
             conn.execute("UPDATE users SET signup_source = %s, signup_campaign = %s, signup_content = %s, signup_vid = %s WHERE id = %s",
                          (s_src, s_camp, s_cont, s_vid, uid))
+            if promo_row:
+                conn.execute("UPDATE users SET promo_code = %s WHERE id = %s", (promo_row["code"], uid))
             tok = open_session(conn, uid)
         sent = send_verify(conn, user)
     return {"token": tok, "email_sent": sent}
