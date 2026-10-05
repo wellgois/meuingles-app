@@ -16,6 +16,43 @@ PAYING_NOW = "(u.plan IN ('active', 'canceled') AND u.paid_until > now())"
 PAID_EVER = "(u.plan IN ('active', 'canceled') OR u.paid_until IS NOT NULL)"
 EXPIRED = f"(NOT {TRIAL_ACTIVE} AND u.plan NOT IN ('active', 'canceled'))"
 
+AZURE_BRL_H = float(os.environ.get("AZURE_USD_PER_HOUR", "1.3")) * float(os.environ.get("USD_BRL", "5.22"))
+SIM_BRL = 0.12
+
+PROMO_SQL = """
+SELECT p.code, p.label, p.active, p.trial_days, p.max_uses, p.used_count, p.expires_at, p.audio_min, p.max_sims,
+       count(u.id) AS signups,
+       count(u.id) FILTER (WHERE u.email_verified) AS verified,
+       count(u.id) FILTER (WHERE coalesce(a.n, 0) >= 1) AS practiced,
+       count(u.id) FILTER (WHERE coalesce(s.sims, 0) >= 1) AS started_sim,
+       coalesce(sum(s.sims), 0) AS sims,
+       coalesce(sum(s.fin), 0) AS finished,
+       count(u.id) FILTER (WHERE s.aprov > 0) AS approved,
+       round(coalesce(sum(a.ms), 0) / 60000.0, 1) AS azure_min,
+       count(u.id) FILTER (WHERE p.audio_min IS NOT NULL AND coalesce(a.ms, 0) >= 0.8 * p.audio_min * 60000) AS near_audio,
+       count(u.id) FILTER (WHERE p.max_sims IS NOT NULL AND coalesce(s.sims, 0) >= 0.8 * p.max_sims) AS near_sims
+FROM promo_codes p
+LEFT JOIN users u ON u.promo_code = p.code
+LEFT JOIN (SELECT user_id, count(*) AS n, coalesce(sum(audio_ms) FILTER (WHERE engine = 'azure'), 0) AS ms
+           FROM attempts GROUP BY user_id) a ON a.user_id = u.id
+LEFT JOIN (SELECT user_id, count(*) AS sims, count(*) FILTER (WHERE status = 'finished') AS fin,
+                  count(*) FILTER (WHERE status = 'finished' AND overall >= 75) AS aprov
+           FROM interview_sessions GROUP BY user_id) s ON s.user_id = u.id
+GROUP BY p.code ORDER BY p.created_at DESC
+"""
+
+PROMO_CRIT_SQL = """
+SELECT u.promo_code AS code, count(DISTINCT s.user_id) AS students,
+       avg((s.report->'criteria'->>'star')::numeric) AS star,
+       avg((s.report->'criteria'->>'technical')::numeric) AS technical,
+       avg((s.report->'criteria'->>'vocabulary')::numeric) AS vocabulary,
+       avg((s.report->'criteria'->>'grammar')::numeric) AS grammar,
+       avg((s.report->'criteria'->>'clarity')::numeric) AS clarity
+FROM interview_sessions s JOIN users u ON u.id = s.user_id
+WHERE u.promo_code IS NOT NULL AND s.status = 'finished' AND s.report IS NOT NULL
+GROUP BY u.promo_code
+"""
+
 LEADS_SQL = """
 SELECT u.id, u.name, u.email, u.email_verified, u.plan, u.level, u.target_level, u.created_at,
        u.trial_ends_at, u.paid_until, u.mp_status, u.wants_subscription_at,
@@ -83,6 +120,24 @@ def register(app, db, current_user):
                 "SELECT " + ", ".join(f'count(*) FILTER (WHERE {c}) AS "{k}"' for k, c in SEGMENTS.items())
                 + f" FROM ({LEADS_SQL}) t").fetchone()
         return {"total": total, "items": items, "counts": counts}
+
+    @app.get("/api/admin/promo")
+    def admin_promo(user=Depends(admin_only)):
+        with db() as conn:
+            rows = conn.execute(PROMO_SQL).fetchall()
+            crit = conn.execute(PROMO_CRIT_SQL).fetchall()
+        by = {c["code"]: c for c in crit}
+        items = []
+        for r in rows:
+            r = dict(r)
+            c = by.get(r["code"])
+            n = int(c["students"]) if c else 0
+            r["students_with_report"] = n
+            r["criteria"] = ({k: (None if c[k] is None else round(float(c[k]), 1))
+                              for k in ("star", "technical", "vocabulary", "grammar", "clarity")} if c and n >= 5 else None)
+            r["est_cost_brl"] = round(float(r["azure_min"]) / 60 * AZURE_BRL_H + int(r["sims"]) * SIM_BRL, 2)
+            items.append(r)
+        return {"items": items}
 
     @app.get("/api/admin/insights")
     def admin_insights(user=Depends(admin_only)):

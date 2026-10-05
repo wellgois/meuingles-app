@@ -505,12 +505,29 @@
     const box = $("#adminBox");
     try { localStorage.setItem("mi_notrack", "1"); } catch (e) {}
     try {
-      const [s, i] = await Promise.all([api("admin/stats"), api("admin/insights").catch(() => null)]);
+      const [s, i, pr] = await Promise.all([api("admin/stats"), api("admin/insights").catch(() => null), api("admin/promo").catch(() => null)]);
       const cell = (n, l, note) => '<div class="stat"><strong>' + aEsc(n) + "</strong><span>" + aEsc(l) + (note ? '<em class="delta">' + aEsc(note) + "</em>" : "") + "</span></div>";
       let h = '<div class="block"><div class="row"><span class="label">Painel do administrador</span></div><div class="stats stats-admin">' +
         cell(s.signups, "cadastros") + cell(s.verified, "e-mails confirmados") + cell(s.trial_active, "em teste") +
         cell(s.trial_ended, "teste vencido") + cell(s.want_to_pay, "querem assinar") + cell(s.paying, "assinantes") +
         cell(s.active_users_7d, "ativos em 7 dias") + cell(s.azure_min_month, "min de Azure no mês") + cell(s.llm_calls_7d, "correções IA em 7 dias") + "</div></div>";
+      if (pr && pr.items && pr.items.length) {
+        const f1 = (v) => (v == null ? "–" : Number(v).toFixed(1).replace(".", ","));
+        h += '<div class="block"><span class="label">Pilotos por código promocional</span>' + pr.items.map((p) => {
+          const val = p.expires_at ? new Date(p.expires_at).toLocaleDateString("pt-BR") : "sem validade";
+          const lim = (p.audio_min ? p.audio_min + " min de áudio" : "limite padrão de áudio") + " · " + (p.max_sims ? p.max_sims + " simulações" : "sem teto de simulações");
+          const crit = p.criteria
+            ? "média da turma (" + p.students_with_report + " alunos): STAR " + f1(p.criteria.star) + " · técnica " + f1(p.criteria.technical) + " · vocabulário " + f1(p.criteria.vocabulary) + " · gramática " + f1(p.criteria.grammar) + " · clareza " + f1(p.criteria.clarity)
+            : "médias por critério aparecem com 5 ou mais alunos com relatório";
+          return '<div class="lead-meta"><b>' + aEsc(p.code) + "</b> · " + (p.active ? "ativo" : "inativo") + " · " + p.trial_days + " dias · validade " + aEsc(val) + " · " + aEsc(lim) + "</div>" +
+            '<div class="stats stats-admin">' +
+            cell(p.used_count + " de " + (p.max_uses == null ? "sem limite" : p.max_uses), "vagas usadas") + cell(p.verified, "e-mails confirmados") + cell(p.practiced, "treinaram") +
+            cell(p.started_sim, "iniciaram simulação") + cell(p.finished, "simulações finalizadas") + cell(p.approved, "alunos com nota 75+") +
+            cell(p.azure_min, "min de áudio") + cell(p.near_audio, "perto do limite de áudio") + cell(p.near_sims, "perto do limite de simulações") +
+            cell("R$ " + Number(p.est_cost_brl).toFixed(2).replace(".", ","), "custo estimado") + "</div>" +
+            '<div class="lead-meta">' + aEsc(crit) + "</div>";
+        }).join("") + "</div>";
+      }
       if (i) {
         const money = "R$ " + Number(i.mrr || 0).toFixed(2).replace(".", ",");
         const funnel = [["Cadastros", i.signups], ["E-mail confirmado", i.verified], ["Fizeram 1 treino", i.practiced],
