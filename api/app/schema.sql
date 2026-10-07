@@ -226,3 +226,4 @@ ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS max_sims int;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_audio_min int;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_max_sims int;
 ALTER TABLE cv_documents ADD COLUMN IF NOT EXISTS terms_enc bytea;
+ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS job_text text;
