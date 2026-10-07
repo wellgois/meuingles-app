@@ -886,6 +886,7 @@
   const ivPct = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
 
   function ivLeave() {
+    ivTrainStop();
     if (!iv || !iv.visible) return;
     iv.visible = false;
     const ta = $("#ivText");
@@ -905,8 +906,115 @@
   function renderInterview() {
     const s = iv.st;
     if (!s) return;
-    if (s.active) { if (s.active.ready) renderIvReady(); else renderIvQuestion(); }
+    if (s.active) { iv.job = ""; if (s.active.ready) renderIvReady(); else renderIvQuestion(); }
     else renderIvIdle();
+  }
+
+  /* ---------- vaga, evolução e treino em voz ---------- */
+  var ivTrain = { rec: null, on: false };
+
+  function ivJobBox() {
+    const v = iv.job || "";
+    return '<details class="iv-job"' + (v ? " open" : "") + '><summary>Treinar para uma vaga (opcional)</summary>' +
+      '<p class="muted">Cole a descrição da vaga e as 3 perguntas saem dela. Se você salvou o currículo, o perfil ajuda a escolher o ângulo. O texto vai para a IA e é apagado quando você finaliza ou abandona. Sem vaga, vale o banco de perguntas de sempre.</p>' +
+      '<textarea id="ivJob" rows="7" maxlength="6000" style="width:100%" placeholder="Cole aqui a descrição da vaga">' + esc(v) + '</textarea></details>';
+  }
+
+  function ivBindJob() {
+    const ta = $("#ivJob");
+    if (ta) ta.addEventListener("input", () => { iv.job = ta.value; });
+  }
+
+  function ivJobBody() {
+    const ta = $("#ivJob");
+    const job = ta ? ta.value.trim() : "";
+    if (job) {
+      iv.job = job;
+      const b = $("#ivStart");
+      if (b) b.textContent = "Montando as perguntas…";
+      return { method: "POST", body: JSON.stringify({ job }) };
+    }
+    return { method: "POST" };
+  }
+
+  function ivTrendHtml(tr) {
+    if (!tr || tr.length < 2) return "";
+    const first = tr[0], last = tr[tr.length - 1];
+    const bars = tr.map((t) => '<i title="' + Math.round(t.overall) + '" style="flex:1;background:currentColor;opacity:.55;border-radius:3px 3px 0 0;height:' + Math.max(4, Math.min(100, Math.round(t.overall))) + '%"></i>').join("");
+    let low = null;
+    const rows = IV_CRIT.map((c) => {
+      const a = (first.criteria || {})[c[0]], b = (last.criteria || {})[c[0]];
+      if (typeof a !== "number" || typeof b !== "number") return "";
+      if (!low || b < low[1]) low = [c[1], b];
+      const d = Math.round(b - a);
+      return '<div class="row"><span>' + c[1] + '</span><b>' + Math.round(a) + ' → ' + Math.round(b) + (d ? ' (' + (d > 0 ? "+" : "") + d + ')' : "") + '</b></div>';
+    }).join("");
+    return '<span class="label">Evolução · últimas ' + tr.length + ' simulações</span>' +
+      '<div style="display:flex;align-items:flex-end;gap:4px;height:64px;margin:8px 0">' + bars + '</div>' +
+      '<p class="muted">Nota geral: ' + Math.round(first.overall) + ' → ' + Math.round(last.overall) + '</p>' + rows +
+      (low ? '<p class="muted">Ponto mais fraco na última simulação: ' + low[0] + ' (' + Math.round(low[1]) + ').</p>' : "");
+  }
+
+  function ivWords(t) {
+    return String(t || "").toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9'\s]/g, " ").split(/\s+/).filter(Boolean);
+  }
+
+  function ivTrainStop() {
+    if (!ivTrain) return;
+    ivTrain.on = false;
+    if (ivTrain.rec) { try { ivTrain.rec.stop(); } catch (e) {} }
+  }
+
+  function ivTrainScore(target, heard) {
+    const t = ivWords(target), h = ivWords(heard);
+    const bag = {};
+    h.forEach((w) => { bag[w] = (bag[w] || 0) + 1; });
+    let ok = 0;
+    const miss = [];
+    t.forEach((w) => { if (bag[w] > 0) { bag[w]--; ok++; } else miss.push(w); });
+    const pct = t.length ? Math.round(100 * ok / t.length) : 0;
+    const uniq = Array.from(new Set(miss)).slice(0, 10);
+    return '<p class="iv-progress"><strong>' + pct + '%</strong> das palavras reconhecidas</p>' +
+      (uniq.length ? '<p class="muted">Palavras que não apareceram: ' + uniq.map(esc).join(", ") + '</p>'
+        : '<p class="muted">Todas as palavras foram reconhecidas. Tente de novo sem olhar o texto.</p>');
+  }
+
+  function ivTrainToggle(target) {
+    if (ivTrain.on) { ivTrainStop(); return; }
+    const r = new SR();
+    r.lang = "en-US"; r.continuous = true; r.interimResults = false;
+    let heard = "", failed = false;
+    r.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) heard += " " + e.results[i][0].transcript;
+      }
+    };
+    r.onerror = (e) => {
+      failed = true;
+      const o = $("#ivTrainOut");
+      if (o) o.innerHTML = '<p class="muted">Não consegui ouvir (' + esc(e.error || "erro") + '). Confira a permissão do microfone.</p>';
+    };
+    r.onend = () => {
+      ivTrain.on = false; ivTrain.rec = null;
+      const b = $("#ivTrainRec"), o = $("#ivTrainOut");
+      if (b) b.textContent = "Gravar de novo";
+      if (failed || !o) return;
+      o.innerHTML = heard.trim() ? ivTrainScore(target, heard) : '<p class="muted">Não ouvi nada. Tente de novo mais perto do microfone.</p>';
+    };
+    try { r.start(); } catch (e) { return; }
+    ivTrain.rec = r; ivTrain.on = true;
+    const b = $("#ivTrainRec"), o = $("#ivTrainOut");
+    if (b) b.textContent = "Parar";
+    if (o) o.innerHTML = "";
+  }
+
+  function ivTrainOpen(text) {
+    const box = $("#ivTrainBox");
+    if (!box) return;
+    if (!SR) { box.innerHTML = '<p class="muted">Seu navegador não tem reconhecimento de voz. Use o Chrome para este treino.</p>'; return; }
+    box.innerHTML = '<p class="muted">Leia a versão acima em voz alta e toque em Parar. O app compara as palavras que o navegador reconheceu com o texto. Isso mostra se as palavras saíram reconhecíveis, não avalia a sua pronúncia. Treinar não gasta simulação.</p>' +
+      '<div class="row-tight"><button type="button" class="btn small" id="ivTrainRec">Gravar</button></div><div id="ivTrainOut"></div>';
+    $("#ivTrainRec").addEventListener("click", () => ivTrainToggle(text));
   }
 
   function renderIvIdle() {
@@ -919,11 +1027,12 @@
     ivBox('<span class="label">Nível 5 · Interview</span><h3>Simulador de entrevista</h3>' +
       '<p class="muted">Três perguntas (comportamental no formato STAR, técnica e system design), cada uma com uma pergunta de acompanhamento. No fim, um relatório com nota por critério. Leva de 10 a 15 minutos.</p>' +
       '<p class="iv-progress"><strong>' + s.passes + " de " + s.passes_needed + "</strong> simulações aprovadas (nota geral " + s.pass_score + " ou mais)" + (s.level_complete ? " · nível 5 concluído" : "") + "</p>" +
-      (hist ? '<span class="label">Últimas simulações</span><div class="iv-list">' + hist + "</div>" : "") +
+      ivTrendHtml(s.trend) + (hist ? '<span class="label">Últimas simulações</span><div class="iv-list">' + hist + "</div>" : "") +
       (!s.configured ? '<div class="notice">O simulador precisa da chave do LLM, que ainda não está configurada.</div>'
         : (!unlimited && left === 0) ? '<div class="notice">Você já fez ' + s.per_day + " simulações nas últimas 24 horas. Volte amanhã.</div>" : "") +
-      '<button type="button" class="btn" id="ivStart"' + (blocked ? " disabled" : "") + ">Começar simulação</button>");
+      ivJobBox() + '<button type="button" class="btn" id="ivStart"' + (blocked ? " disabled" : "") + ">Começar simulação</button>");
     $("#ivStart").addEventListener("click", ivStart);
+    ivBindJob();
     $$("#ivBox .iv-hist").forEach((b) => b.addEventListener("click", () => ivOpenReport(b.dataset.id)));
   }
 
@@ -936,7 +1045,7 @@
     if (iv.busy) return;
     iv.busy = true;
     $("#ivStart").disabled = true;
-    try { iv.st = await api("interview/start", { method: "POST" }); iv.autoSpeak = true; }
+    try { iv.st = await api("interview/start", ivJobBody()); iv.autoSpeak = true; }
     catch (e) { if (e.message !== "401") toast(e.message); }
     finally { iv.busy = false; }
     renderInterview();
@@ -1097,13 +1206,15 @@
       h += '<span class="label">Uma versão mais natural da sua resposta mais fraca</span>' +
         (weak ? '<p class="muted" lang="en">' + esc(weak.text) + "</p>" : "") +
         '<p class="iv-natural" lang="en">' + esc(rep.natural_version) + "</p>" +
-        '<div class="row-tight"><button type="button" class="btn ghost small" id="ivSayNat">Ouvir</button></div>';
+        '<div class="row-tight"><button type="button" class="btn ghost small" id="ivSayNat">Ouvir</button><button type="button" class="btn ghost small" id="ivTrain">Treinar em voz</button></div><div id="ivTrainBox"></div>';
     }
     h += '<p class="iv-progress"><strong>' + (s.passes || 0) + " de " + (s.passes_needed || 2) + "</strong> simulações aprovadas" + (s.level_complete ? " · nível 5 concluído" : "") + "</p>" +
       '<button type="button" class="btn" id="ivBack">' + (fresh ? "Fazer outra simulação" : "Voltar") + "</button>";
     ivBox(h);
     const nat = $("#ivSayNat");
     if (nat) nat.addEventListener("click", () => say(rep.natural_version));
+    const trn = $("#ivTrain");
+    if (trn) trn.addEventListener("click", () => ivTrainOpen(rep.natural_version));
     $("#ivBack").addEventListener("click", () => renderInterview());
   }
 
