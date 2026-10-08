@@ -25,7 +25,7 @@ Levels 3 and 4 use browser speech recognition, so they keep working when the mon
 - 3 questions: behavioral (STAR), technical and system design, each with one AI follow-up on the weakest part of the answer.
 - Report with an overall score and 5 criteria: STAR structure, technical correctness, vocabulary, grammar and clarity. Passing score is 75; the level asks for 2 passed simulations.
 - The report is built from the text transcript only. It makes no claims about pronunciation or audio quality.
-- Questions come from a fixed bank (level 4 content, 12 technical and 8 system design questions in `api/app/interview.py`), picked at random. They are not generated from the resume.
+- Questions come from a fixed bank (level 4 content, 12 technical and 8 system design questions in `api/app/interview.py`), picked at random. Optionally, the candidate pastes a job description and the 3 questions are generated from it (and from the resume profile, if the user consented). If generation fails, the simulation does not start and no quota is used. The job text is deleted when the simulation ends. Questions are never generated from the resume alone.
 - Optional "AI suggestion": a draft answer written only from the candidate's resume profile. Answers close to the draft are flagged as assisted, and vocabulary, grammar and clarity scores are capped at 70 for them.
 - Answers are deleted when the simulation ends; only the report is kept.
 
@@ -75,7 +75,7 @@ API docs: `/api/docs`.
 ## Known limitations
 
 - Pix is a one-off 30-day payment and does not renew by itself.
-- The question bank is fixed and only adjusted by career track.
+- Without a job description, the question bank is fixed and only adjusted by career track.
 - Simulator speech recognition depends on browser support (Chrome works best); users can type instead.
 - No teacher or institution dashboard.
 - Scores are produced by an LLM from transcripts. They are practice feedback, not a certification and not a hiring predictor.
