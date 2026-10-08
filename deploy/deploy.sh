@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Chamado pelo GitHub Actions (a chave SSH só consegue rodar este script).
 # Tudo dentro de main(): o bash lê o arquivo inteiro antes de executar, então o git pode reescrevê-lo sem risco.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "deploy falhou na linha $LINENO" >&2' ERR
 
 main() {
   cd /opt/meuingles
