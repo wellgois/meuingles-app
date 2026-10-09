@@ -501,6 +501,39 @@
       });
     } catch (e) { box.innerHTML = ""; }
   }
+  /* ---------- painel do administrador: divulgação no GitHub ---------- */
+  const ghs = { days: 7 };
+  async function loadGithub() {
+    const box = $("#admGithub");
+    if (!box) return;
+    try {
+      const g = await api("admin/github?days=" + ghs.days);
+      if (!g.configured) { box.innerHTML = '<div class="block"><span class="label">Divulgação no GitHub</span><p class="muted">Desligado: defina GITHUB_TRAFFIC_TOKEN no .env da VPS.</p></div>'; return; }
+      const cell = (n, l, note) => '<div class="stat"><strong>' + aEsc(n) + "</strong><span>" + aEsc(l) + (note ? '<em class="delta">' + aEsc(note) + "</em>" : "") + "</span></div>";
+      const rows = (arr, cols) => arr.map((r) => "<tr>" + cols.map((c) => "<td>" + c(r) + "</td>").join("") + "</tr>").join("");
+      const wrap = (head, body) => '<div class="tbl-wrap"><table class="table"><thead><tr>' + head.map((x) => "<th>" + x + "</th>").join("") + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+      const sign = (n) => (n == null ? "" : (n > 0 ? "+" : "") + n + " no período");
+      const T = g.totals;
+      let h = '<div class="block"><div class="adm-row"><span class="label">Divulgação no GitHub</span><select id="ghDays" class="mini-sel">' +
+        [7, 30, 90].map((d) => '<option value="' + d + '"' + (d === ghs.days ? " selected" : "") + ">Últimos " + d + " dias</option>").join("") + "</select></div>" +
+        '<div class="stats stats-admin">' + cell(T.uniques, "visitantes (soma dos dias)") + cell(T.views, "visualizações") + cell(T.stars, "estrelas", sign(T.stars_delta)) + cell(T.forks, "forks") + "</div>";
+      const mx = Math.max(1, ...g.by_day.map((d) => d.uniques));
+      h += '<span class="label">Visitantes por dia</span><div class="spark">' + g.by_day.map((d) => '<i title="' + aDate(d.day + "T12:00:00") + ": " + d.uniques + ' visitantes, ' + d.views + ' visualizações" style="height:' +
+        Math.max(3, Math.round((d.uniques / mx) * 100)) + '%"></i>').join("") + "</div>";
+      h += '<span class="label">Por repositório</span>' + wrap(["Repositório", "Visitantes", "Views", "Clones", "Estrelas"],
+        rows(g.repos, [(r) => aEsc(r.repo), (r) => r.uniques, (r) => r.views, (r) => r.unique_clones, (r) => r.stars]));
+      if (g.refs.length) h += '<span class="label">De onde vieram (14 dias até ' + aDate(g.refs_date + "T12:00:00") + ")</span>" + wrap(["Origem", "Repositório", "Visitantes", "Views"],
+        rows(g.refs, [(r) => aEsc(r.referrer), (r) => aEsc(r.repo), (r) => r.uniques, (r) => r.views]));
+      if (g.paths.length) h += '<span class="label">Páginas mais vistas</span>' + wrap(["Página", "Visitantes", "Views"],
+        rows(g.paths, [(r) => aEsc(r.path), (r) => r.uniques, (r) => r.views]));
+      h += '<span class="label">Quem deu estrela</span>' + (g.stargazers.length ? wrap(["Perfil", "Repositório", "Quando"],
+        rows(g.stargazers, [(r) => '<a href="https://github.com/' + encodeURIComponent(r.user) + '" target="_blank" rel="noopener">' + aEsc(r.user) + "</a>", (r) => aEsc(r.repo), (r) => aDate(r.starred_at)])) :
+        '<p class="muted">Ninguém deu estrela ainda.</p>');
+      h += '<p class="adm-sub">O GitHub só informa o total de visitantes, nunca quem visitou. Atualiza uma vez por dia. As suas próprias visitas e os clones feitos por robôs e pelo deploy entram na conta, então olhe mais os visitantes e as origens do que as visualizações e os clones.</p></div>';
+      box.innerHTML = h;
+      $("#ghDays").addEventListener("change", (e) => { ghs.days = Number(e.target.value); loadGithub(); });
+    } catch (e) { if (e.message !== "401") box.innerHTML = '<div class="block"><span class="label">Divulgação no GitHub</span><p class="muted">' + aEsc(e.message) + "</p></div>"; }
+  }
   async function loadAdmin() {
     const box = $("#adminBox");
     try { localStorage.setItem("mi_notrack", "1"); } catch (e) {}
@@ -557,6 +590,7 @@
       }
       h += '<div id="admCosts"></div>';
       h += '<div id="admTraffic"></div>';
+      h += '<div id="admGithub"></div>';
       h += '<div class="block"><span class="label">Leads</span><div class="adm-ctl"><select id="admSeg"></select>' +
         '<select id="admOrder"><option value="created_at:desc">Mais recentes</option><option value="last_at:desc">Última atividade</option>' +
         '<option value="attempts:desc">Mais treinos</option><option value="trial_ends_at:asc">Teste acaba primeiro</option></select>' +
@@ -577,7 +611,7 @@
         adm.seg = b.dataset.seg; loadLeads(true);
         $("#admSeg").scrollIntoView({ behavior: "smooth", block: "center" });
       }));
-      loadLeads(true); loadTraffic(); loadCosts();
+      loadLeads(true); loadTraffic(); loadGithub(); loadCosts();
     } catch (e) { box.innerHTML = ""; }
   }
   $("#deleteBtn").addEventListener("click", () => { $("#deleteForm").hidden = false; $("#deletePass").focus(); });
