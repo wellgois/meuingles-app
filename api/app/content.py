@@ -159,6 +159,11 @@ def find_item(item_id: str):
         for it in items_for_level(4, tr):
             if it["id"] == item_id:
                 return 4, it
+    if item_id.startswith("f:"):
+        txt = " ".join(item_id[2:].split())
+        if not txt or len(txt) > 200 or not any(c.isalpha() for c in txt):
+            return None, None
+        return 0, {"id": item_id, "text": txt, "kind": "sentence" if " " in txt else "word", "hint": "Treino livre: texto escolhido por você."}
     if item_id.startswith("t:") and 3 <= len(item_id) <= 202:
         return 2, {"id": item_id, "text": item_id[2:], "kind": "sentence", "hint": "Frase sugerida pela IA a partir da sua última resposta."}
     if item_id.startswith("r:"):

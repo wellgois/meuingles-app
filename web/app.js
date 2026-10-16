@@ -764,6 +764,35 @@
   }
   $("#soundChip").addEventListener("click", openSounds);
 
+  /* ---------- treino livre ---------- */
+  function openFree() {
+    if (rec.active || (typeof aud !== "undefined" && aud.active)) return;
+    $$("#levelChips [data-lv]").forEach((c) => c.setAttribute("aria-pressed", "false"));
+    state.adhoc = null;
+    practiceView(false);
+    $("#soundChip").setAttribute("aria-pressed", "false");
+    $("#freeChip").setAttribute("aria-pressed", "true");
+    $("#soundsPanel").innerHTML = '<div class="block"><span class="label">Treino livre</span>' +
+      '<p class="muted">Digite uma palavra ou frase em inglês (até 200 caracteres). Você ouve o áudio e treina a pronúncia. Não conta para subir de nível.</p>' +
+      '<textarea id="freeText" maxlength="200" rows="3" placeholder="Ex.: We orchestrate data pipelines with Airflow" style="width:100%;box-sizing:border-box;font:inherit;padding:10px"></textarea>' +
+      '<button type="button" class="btn" id="freeGo" style="margin-top:10px">Ouvir e treinar</button></div>';
+    $("#freeGo").addEventListener("click", startFree);
+  }
+  function startFree() {
+    const txt = ($("#freeText").value || "").replace(/\s+/g, " ").trim();
+    if (!/[A-Za-z]/.test(txt)) { toast("Digite uma palavra ou frase em inglês."); return; }
+    if (txt.length > 200) { toast("Use no máximo 200 caracteres."); return; }
+    const it = { id: "f:" + txt, text: txt, kind: /\s/.test(txt) ? "sentence" : "word", label: "Treino livre", hint: "Texto escolhido por você · não conta para o nível" };
+    state.queue = [it]; state.qIdx = 0; state.adhoc = it;
+    practiceView(true);
+    $("#freeChip").setAttribute("aria-pressed", "true");
+    renderItem();
+    window.scrollTo(0, 0);
+    say(txt);
+  }
+  $("#freeChip").addEventListener("click", openFree);
+  $$("#levelChips button, #soundChip").forEach((b) => { if (b.id !== "freeChip") b.addEventListener("click", () => $("#freeChip").setAttribute("aria-pressed", "false")); });
+
   /* ---------- meu currículo ---------- */
   var cvs = { st: null, busy: false, edit: false, replacing: false };
   const cvBox = (html) => { const b = $("#cvBox"); if (b) b.innerHTML = html; };

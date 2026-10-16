@@ -700,7 +700,7 @@ def progress(user=Depends(current_user)):
                GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 6""", (uid, list(SHORT))).fetchall()
         by_level = conn.execute(
             """SELECT level, count(*) AS n, round(avg(main_score)) AS avg
-               FROM attempts WHERE user_id = %s GROUP BY 1 ORDER BY 1""", (uid,)).fetchall()
+               FROM attempts WHERE user_id = %s AND level >= 1 GROUP BY 1 ORDER BY 1""", (uid,)).fetchall()
     return {
         "daily": [{"day": r["day"].isoformat(), "avg": int(r["avg"]), "n": r["n"]} for r in daily],
         "missed": [{"word": r["word"], "n": r["n"], "ipa": content.WORD_INDEX.get(r["word"], {}).get("ipa", "")} for r in missed],
