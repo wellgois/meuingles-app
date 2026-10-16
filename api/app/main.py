@@ -616,6 +616,52 @@ async def create_attempt_audio(request: Request, item_id: str, duration_ms: int 
     return await run_in_threadpool(save_attempt, user, level, item, transcript, result, "azure", duration_ms, meta, audio_ms)
 
 
+# ---------- treino livre ----------
+
+class FreePhraseIn(BaseModel):
+    text: str = Field(max_length=400)
+
+
+def _free_clean(t):
+    t = " ".join((t or "").split())
+    if not t or len(t) > 200 or not any(c.isalpha() for c in t):
+        raise HTTPException(422, "Digite uma palavra ou frase em inglês (até 200 caracteres).")
+    return t
+
+
+@app.get("/api/free")
+def free_list(user=Depends(current_user)):
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, text FROM free_phrases WHERE user_id = %s ORDER BY last_used_at DESC LIMIT 100",
+            (user["id"],)).fetchall()
+    return {"phrases": [{"id": r["id"], "text": r["text"]} for r in rows]}
+
+
+@app.post("/api/free")
+def free_save(body: FreePhraseIn, user=Depends(current_user)):
+    auth.require_practice(user)
+    t = _free_clean(body.text)
+    with db() as conn:
+        conn.execute(
+            """INSERT INTO free_phrases (user_id, text) VALUES (%s, %s)
+               ON CONFLICT (user_id, text) DO UPDATE
+               SET last_used_at = now(), uses = free_phrases.uses + 1""",
+            (user["id"], t))
+        conn.execute(
+            """DELETE FROM free_phrases WHERE user_id = %s AND id NOT IN
+               (SELECT id FROM free_phrases WHERE user_id = %s ORDER BY last_used_at DESC LIMIT 100)""",
+            (user["id"], user["id"]))
+    return {"ok": True}
+
+
+@app.delete("/api/free/{pid}")
+def free_delete(pid: int, user=Depends(current_user)):
+    with db() as conn:
+        conn.execute("DELETE FROM free_phrases WHERE id = %s AND user_id = %s", (pid, user["id"]))
+    return {"ok": True}
+
+
 # ---------- treino por som ----------
 
 @app.get("/api/sounds")

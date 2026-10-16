@@ -777,9 +777,30 @@
       '<textarea id="freeText" maxlength="200" rows="3" placeholder="Ex.: We orchestrate data pipelines with Airflow" style="width:100%;box-sizing:border-box;font:inherit;padding:10px"></textarea>' +
       '<button type="button" class="btn" id="freeGo" style="margin-top:10px">Ouvir e treinar</button></div>';
     $("#freeGo").addEventListener("click", startFree);
+    loadFree();
   }
-  function startFree() {
-    const txt = ($("#freeText").value || "").replace(/\s+/g, " ").trim();
+  async function loadFree() {
+    let r;
+    try { r = await api("free"); } catch (e) { return; }
+    if (!r.phrases.length || !$("#freeText")) return;
+    const d = document.createElement("div");
+    d.className = "block"; d.id = "freeList";
+    d.innerHTML = '<span class="label">Minhas frases</span><ul class="drills">' +
+      r.phrases.map((p) => '<li><span>' + esc(p.text) + '</span><span class="acts">' +
+        '<button type="button" class="btn ghost small" data-fp="' + p.id + '">Treinar</button>' +
+        '<button type="button" class="btn ghost small" data-fd="' + p.id + '">Excluir</button></span></li>').join("") + '</ul>';
+    $("#soundsPanel").appendChild(d);
+    d.querySelectorAll("[data-fp]").forEach((b) => b.addEventListener("click", () => {
+      const p = r.phrases.find((x) => String(x.id) === b.dataset.fp);
+      if (p) startFree(p.text);
+    }));
+    d.querySelectorAll("[data-fd]").forEach((b) => b.addEventListener("click", async () => {
+      try { await api("free/" + b.dataset.fd, { method: "DELETE" }); } catch (e) { toast(e.message); return; }
+      openFree();
+    }));
+  }
+  function startFree(raw) {
+    const txt = (typeof raw === "string" ? raw : ($("#freeText").value || "")).replace(/\s+/g, " ").trim();
     if (!/[A-Za-z]/.test(txt)) { toast("Digite uma palavra ou frase em inglês."); return; }
     if (txt.length > 200) { toast("Use no máximo 200 caracteres."); return; }
     const it = { id: "f:" + txt, text: txt, kind: /\s/.test(txt) ? "sentence" : "word", label: "Treino livre", hint: "Texto escolhido por você · não conta para o nível" };
@@ -789,6 +810,7 @@
     renderItem();
     window.scrollTo(0, 0);
     say(txt);
+    api("free", { method: "POST", body: JSON.stringify({ text: txt }) }).catch(() => {});
   }
   $("#freeChip").addEventListener("click", openFree);
   $$("#levelChips button, #soundChip").forEach((b) => { if (b.id !== "freeChip") b.addEventListener("click", () => $("#freeChip").setAttribute("aria-pressed", "false")); });

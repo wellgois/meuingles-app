@@ -227,3 +227,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_audio_min int;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS promo_max_sims int;
 ALTER TABLE cv_documents ADD COLUMN IF NOT EXISTS terms_enc bytea;
 ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS job_text text;
+
+-- Frases do treino livre, escritas pelo aluno.
+CREATE TABLE IF NOT EXISTS free_phrases (
+    id           bigserial PRIMARY KEY,
+    user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    text         text NOT NULL,
+    uses         int NOT NULL DEFAULT 1,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, text)
+);
