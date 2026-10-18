@@ -473,11 +473,14 @@ class AttemptIn(BaseModel):
     transcript: str = Field(max_length=5000)
     confidence: float | None = Field(default=None, ge=0, le=1)
     duration_ms: int | None = Field(default=None, ge=0, le=600000)
+    assisted: bool = False
 
 
 def streak_progress(conn, user_id, level):
     rows = conn.execute(
-        "SELECT main_score FROM attempts WHERE user_id = %s AND level = %s ORDER BY created_at DESC LIMIT 5",
+        "SELECT main_score FROM attempts WHERE user_id = %s AND level = %s "
+        "AND coalesce(raw->'request'->>'assisted', 'false') <> 'true' "
+        "ORDER BY created_at DESC LIMIT 5",
         (user_id, level)).fetchall()
     n = 0
     for r in rows:

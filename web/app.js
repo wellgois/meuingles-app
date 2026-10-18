@@ -688,7 +688,36 @@
     const list = state.items[state.level];
     return list ? list[state.index[state.level]] : null;
   }
-  const LABELS = { word: "Pronuncie a palavra", sentence: "Repita a frase", explain: "Explique em inglês", star: "Responda no formato STAR" };
+  const sugText = new Map();
+let sugBusy = false;
+function bigrams(t) {
+  const w = (t || "").toLowerCase().match(/[a-z']+/g) || [];
+  const r = [];
+  for (let i = 0; i + 1 < w.length; i++) r.push(w[i] + " " + w[i + 1]);
+  return r;
+}
+function isAssisted(id, tr) {
+  const s = sugText.get(id);
+  if (!s) return false;
+  const a = bigrams(tr), set = new Set(bigrams(s));
+  return a.length >= 4 && a.filter((x) => set.has(x)).length / a.length >= 0.4;
+}
+async function practiceSuggest() {
+  const it = currentItem();
+  if (!it || sugBusy) return;
+  const b = $("#suggestBtn"), x = $("#sugBox");
+  sugBusy = true; b.disabled = true; b.textContent = "Gerando…";
+  try {
+    const r = await api("practice/suggest?item_id=" + encodeURIComponent(it.id), { method: "POST" });
+    x.textContent = r.suggestion; x.style.display = "";
+    sugText.set(it.id, r.suggestion);
+    $("#recNote").textContent = "Sugestão da IA: leia em voz alta ou adapte com suas palavras. Ler a sugestão não conta para subir de nível.";
+  } catch (e) { if (e.message !== "401") toast(e.message); }
+  sugBusy = false; b.disabled = false; b.textContent = "Sugestão da IA";
+}
+const sugBtnEl = $("#suggestBtn");
+if (sugBtnEl) sugBtnEl.addEventListener("click", practiceSuggest);
+const LABELS = { word: "Pronuncie a palavra", sentence: "Repita a frase", explain: "Explique em inglês", star: "Responda no formato STAR" };
   function renderItem() {
     const it = currentItem();
     if (!it) return;
@@ -702,6 +731,9 @@
     const open = it.kind === "explain" || it.kind === "star";
     $("#recNote").textContent = open ? "Toque para começar e toque de novo quando terminar" : "Toque para gravar";
     $("#listenBtn").lastChild.textContent = open ? "Ouvir a pergunta" : "Ouvir pronúncia";
+    const sgb = $("#suggestBtn"), sgx = $("#sugBox");
+    if (sgb) { sgb.style.display = open ? "" : "none"; sgb.disabled = false; sgb.textContent = "Sugestão da IA"; }
+    if (sgx) { sgx.style.display = "none"; sgx.textContent = ""; }
     $("#liveText").textContent = "";
     $("#result").innerHTML = "";
   }
@@ -1412,7 +1444,7 @@
     $("#recNote").textContent = "Analisando…";
     $("#recBtn").disabled = true;
     try {
-      const r = await api("attempts", { method: "POST", body: JSON.stringify({ item_id: it.id, transcript, confidence: conf, duration_ms: duration }) });
+      const r = await api("attempts", { method: "POST", body: JSON.stringify({ item_id: it.id, transcript, confidence: conf, duration_ms: duration, assisted: isAssisted(it.id, transcript) }) });
       state.homeDirty = state.progressDirty = true;
       renderResult(r, it);
       if (r.level_up) { setPill(r.level_up); toast("Você subiu para o nível " + r.level_up + " · " + r.level_up_name); }

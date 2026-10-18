@@ -490,6 +490,33 @@ def register(app, db, current_user):
                              (suggestion[:1500], sid, turn["seq"]))
         return {"suggestion": suggestion[:1500]}
 
+    @app.post("/api/practice/suggest")
+    def practice_suggest(item_id: str, user=Depends(current_user)):
+        auth.require_practice(user)
+        auth.rate_limit("pr-suggest:" + str(user["id"]), 30, 3600)
+        level, item = content.find_item(item_id)
+        if not item or item["kind"] not in ("explain", "star"):
+            raise HTTPException(404, "Exercício não encontrado.")
+        with db() as conn:
+            profile = cv.get_profile(conn, user["id"]) if cv.consent_ok(conn, user["id"]) else None
+        if not profile:
+            raise HTTPException(422, "Envie seu currículo na aba Entrevista para receber sugestões.")
+        text = ("Question: " + item["text"] + "\n\nCandidate profile (JSON):\n"
+                + json.dumps(profile, ensure_ascii=False)[:6000])
+        if item["kind"] == "explain":
+            text += ("\n\nThis is a technical concept question: explain the concept clearly in 60 to 90 words. "
+                     "Mention the candidate's own experience only if the profile supports it.")
+            if item.get("keywords"):
+                text += " Try to use these words naturally: " + ", ".join(item["keywords"]) + "."
+        out = llm.chat(SUGGEST_SYSTEM, text, max_tokens=400, model=MODEL, temperature=0.5)
+        if not out:
+            raise HTTPException(502, "A IA não respondeu agora. Tente de novo ou responda com suas palavras.")
+        raw, usage = out
+        suggestion = (raw or "").strip()
+        if len(suggestion) < 20:
+            raise HTTPException(502, "A IA não respondeu agora. Tente de novo ou responda com suas palavras.")
+        return {"suggestion": suggestion[:1500]}
+
     @app.post("/api/interview/{sid}/finish")
     def interview_finish(sid: str, user=Depends(current_user)):
         auth.require_practice(user)
