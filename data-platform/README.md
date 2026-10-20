@@ -97,3 +97,10 @@ Tests: `pytest` in this folder (extractor, uploader, panel, orchestration), `tes
    with the Databricks target.
 2. Add Azure Data Factory and compare it with the Airflow DAG using measured results.
 3. Alerting beyond the e-mail on pipeline failure.
+
+## Operação: painel parado (out/2026)
+
+- **O que aconteceu:** a última geração bem-sucedida do painel público foi em 04/10/2026 e ele só voltou em 20/10. A imagem Docker `meuingles-gold` tinha sido removida do servidor, e o `docker run` do painel falhava todo dia ao tentar baixá-la de um registro público.
+- **Impacto:** o envio ao lake não foi afetado (`status=ok` em todas as execuções). A falha ficava só no log, sem alerta, e foi percebida numa revisão de operação, não por aviso.
+- **Correção:** `run_panel.sh` agora reconstrói a imagem a partir do `Dockerfile.gold` quando ela não existe; `run_daily.sh` envia um e-mail próprio ("o painel público falhou") quando o painel falha.
+- **Lição:** uma etapa que "não afeta o lake" continua sendo parte do produto. Falha tolerada precisa de alerta, senão vira falha silenciosa.
