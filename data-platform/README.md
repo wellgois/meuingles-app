@@ -27,7 +27,7 @@ flowchart LR
 | Upload to ADLS Gen2 landing | Scheduled daily; lifecycle rule deletes landing files after 30 days |
 | Bronze and silver (Delta, Spark) | Implemented, 8 tests in CI on local Spark. Databricks job not provisioned yet |
 | Gold (dbt) | 6 models and 17 data tests, running on DuckDB in CI. Databricks target prepared, not exercised yet |
-| Orchestration | cron in production. Airflow DAG tested in CI, not deployed |
+| Orchestration | cron in production. Airflow DAG and Prefect flow (same two steps) tested in CI, neither deployed |
 | Public panel | Live: static page built daily from the extract |
 | Azure Data Factory | Not provisioned |
 
@@ -63,8 +63,9 @@ flowchart LR
 8. **dbt runs on DuckDB first.** A free local loop, with expected values computed by hand and checked in CI. Only two
    macros differ for Spark SQL (`days_between`, `week_start`); the Databricks target is ready.
 9. **Orchestration stays on cron for now.** The VPS also hosts production apps, and the official Airflow Docker Compose
-   file is a quick-start setup. The DAG is tested in CI and runs the pipeline over SSH with a key restricted to a
-   script that accepts only `extract` and `upload`. Airflow is started on demand.
+   file is a quick-start setup. The Airflow DAG and the Prefect flow (`orchestration/prefect_flow.py`) are tested in CI
+   and run the pipeline over SSH with a key restricted to a script that accepts only `extract` and `upload`. Both
+   orchestrators are started on demand, so they can be compared on the same two steps.
 10. **CI cannot go falsely green.** Jobs that need optional dependencies fail when tests are skipped (`FAIL_ON_SKIP`).
 
 ## Privacy

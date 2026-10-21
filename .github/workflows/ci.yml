@@ -114,10 +114,25 @@ jobs:
         working-directory: data-platform
         env:
           FAIL_ON_SKIP: "1"
-        run: pytest -q -p no:cacheprovider tests/orchestration
+        run: pytest -q -p no:cacheprovider tests/orchestration/test_dag.py tests/orchestration/test_pipeline_step.py
+
+  prefect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install prefect pytest
+      - name: Testes do flow Prefect (SSH simulado, banco temporário do Prefect)
+        working-directory: data-platform
+        env:
+          FAIL_ON_SKIP: "1"
+        run: pytest -q -p no:cacheprovider tests/orchestration/test_prefect_flow.py
 
   deploy:
-    needs: [test, lake, gold, airflow]
+    needs: [test, lake, gold, airflow, prefect]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_DEPLOY == 'true'
     runs-on: ubuntu-24.04
     concurrency: deploy-meuingles
