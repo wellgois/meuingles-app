@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
-from . import auth, content, cv, llm, plans
+from . import auth, ciet_card, content, cv, llm, plans
 
 N_QUESTIONS = 3
 PASS_SCORE = 75
@@ -396,6 +396,12 @@ def register(app, db, current_user):
     def interview_state(user=Depends(current_user)):
         with db() as conn:
             return state(conn, user)
+
+    @app.get("/api/interview/ciet")
+    def interview_ciet(user=Depends(current_user)):
+        if user.get("plan") != "owner":
+            raise HTTPException(404, "Não encontrado.")
+        return ciet_card.card()
 
     @app.post("/api/interview/start")
     def interview_start(body: StartIn | None = None, user=Depends(current_user)):
