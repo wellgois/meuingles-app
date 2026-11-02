@@ -1147,10 +1147,66 @@ const LABELS = { word: "Pronuncie a palavra", sentence: "Repita a frase", explai
       ivTrendHtml(s.trend) + (hist ? '<span class="label">Últimas simulações</span><div class="iv-list">' + hist + "</div>" : "") +
       (!s.configured ? '<div class="notice">O simulador precisa da chave do LLM, que ainda não está configurada.</div>'
         : (!unlimited && left === 0) ? '<div class="notice">Você já fez ' + s.per_day + " simulações nas últimas 24 horas. Volte amanhã.</div>" : "") +
-      ivJobBox() + '<button type="button" class="btn" id="ivStart"' + (blocked ? " disabled" : "") + ">Começar simulação</button>");
+      ivJobBox() + '<button type="button" class="btn" id="ivStart"' + (blocked ? " disabled" : "") + ">Começar simulação</button>" +
+      (unlimited ? '<div class="iv-ciet"><span class="label">Roteiro de estudo</span><h3>Simular entrevista CI&amp;T</h3>' +
+        '<p class="muted">As 5 perguntas reais da entrevista Senior Data Engineer, com respostas-modelo em inglês e treino em voz. Não gasta simulação.</p>' +
+        '<button type="button" class="btn ghost" id="ivCiet">Abrir roteiro</button></div>' : ""));
     $("#ivStart").addEventListener("click", ivStart);
+    const ciet = $("#ivCiet");
+    if (ciet) ciet.addEventListener("click", ivCietOpen);
     ivBindJob();
     $$("#ivBox .iv-hist").forEach((b) => b.addEventListener("click", () => ivOpenReport(b.dataset.id)));
+  }
+
+  /* ---------- card "Simular entrevista CI&T" (roteiro de estudo, só dono) ---------- */
+  async function ivCietOpen() {
+    ivBox('<p class="muted">Carregando…</p>');
+    let c = null;
+    try { c = await api("interview/ciet"); }
+    catch (e) { if (e.message !== "401") toast(e.message); }
+    if (!c) { renderInterview(); return; }
+    ivCietRender(c);
+  }
+
+  function ivCietRender(c) {
+    const items = c.items || [];
+    const html = items.map((it, i) => {
+      const notes = (it.notes || []).length ? '<span class="label">Confirme antes de falar</span><ul class="iv-ul">' + it.notes.map((n) => "<li>" + esc(n) + "</li>").join("") + "</ul>" : "";
+      return '<div class="iv-ciet-item" data-i="' + i + '">' +
+        '<div class="row"><span class="label">Pergunta ' + (i + 1) + " de " + items.length + '</span><span class="iv-tag">' + esc(it.tag) + "</span></div>" +
+        '<p class="iv-q" lang="en">' + esc(it.question) + "</p>" +
+        '<div class="row-tight"><button type="button" class="btn ghost small" data-act="q">Ouvir a pergunta</button>' +
+        '<button type="button" class="btn ghost small" data-act="show">Ver resposta-modelo</button></div>' +
+        '<div class="iv-ciet-ans" hidden><p class="iv-natural" lang="en">' + esc(it.answer) + "</p>" +
+        '<div class="row-tight"><button type="button" class="btn ghost small" data-act="a">Ouvir a resposta</button>' +
+        '<button type="button" class="btn ghost small" data-act="train">Treinar em voz</button></div>' +
+        '<div class="ivtb"></div>' + notes + "</div></div>";
+    }).join("");
+    ivBox('<span class="label">Roteiro de estudo</span><h3>' + esc(c.title) + "</h3>" +
+      '<p class="muted">' + esc(c.subtitle) + "</p>" + html +
+      '<button type="button" class="btn" id="ivCietBack">Voltar</button>');
+    $("#ivCietBack").addEventListener("click", () => { ivTrainStop(); if ("speechSynthesis" in window) speechSynthesis.cancel(); renderInterview(); });
+    $$("#ivBox .iv-ciet-item").forEach((box) => {
+      const it = items[Number(box.dataset.i)];
+      const ans = box.querySelector(".iv-ciet-ans");
+      box.addEventListener("click", (ev) => {
+        const b = ev.target.closest("button[data-act]");
+        if (!b) return;
+        const act = b.dataset.act;
+        if (act === "q") say(it.question);
+        else if (act === "a") say(it.answer);
+        else if (act === "show") {
+          ans.hidden = !ans.hidden;
+          b.textContent = ans.hidden ? "Ver resposta-modelo" : "Esconder resposta-modelo";
+        } else if (act === "train") {
+          ivTrainStop();
+          $$("#ivBox .ivtb").forEach((x) => { x.removeAttribute("id"); x.innerHTML = ""; });
+          const tb = box.querySelector(".ivtb");
+          tb.id = "ivTrainBox";
+          ivTrainOpen(it.answer);
+        }
+      });
+    });
   }
 
   async function ivOpenReport(id) {
